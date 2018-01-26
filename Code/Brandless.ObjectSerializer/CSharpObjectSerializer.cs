@@ -400,6 +400,9 @@ namespace Brandless.ObjectSerializer
                         .Union(args.EndObjectStatements.Values)
                         .Union(args.CircularStatements)
                         .Union(statementSyntaxes)
+                        .AddComment(ToComment("Late circular dependencies"))
+                        .Union(args.LateCircularObjectStatements.Values)
+                        .Union(args.LateCircularStatements)
                     ;
             }
             return statementSyntaxes;
@@ -429,7 +432,8 @@ namespace Brandless.ObjectSerializer
             }
         }
 
-        private void SerializeToStandaloneObject(CSharpObjectSerializerInstanceArguments args, object @object,
+        private void SerializeToStandaloneObject(CSharpObjectSerializerInstanceArguments args, 
+            object @object,
             string instanceName, string description = null, bool isCircular = false)
         {
             AddNamespace(args, @object);
@@ -451,7 +455,8 @@ namespace Brandless.ObjectSerializer
                         };
                 var objectStatements =
                     isCircular
-                        ? args.EndObjectStatements
+                        ? 
+                        (@object is IEnumerable ? args.LateCircularObjectStatements : args.EndObjectStatements)
                         : args.ObjectStatements;
                 objectStatements.Add(
                     @object,
@@ -558,6 +563,10 @@ namespace Brandless.ObjectSerializer
             object propertyOwner,
             bool serializeNulls)
         {
+            if (propertyBeingAssigned?.Name == "ExamCandidateResults")
+            {
+                int a = 0;
+            }
             AddNamespace(args,
                 @object);
             if (@object == null)
@@ -571,106 +580,17 @@ namespace Brandless.ObjectSerializer
                     : null;
             }
 
-            var type = @object.GetType();
-
             if (this.ReturnType == null)
             {
-                ReturnType = type;
+                ReturnType = @object.GetType();
             }
 
-            if (@object is DateTime)
+            if (SerializeObject(args, @object, out var syntaxFactoryLiteralExpression))
             {
-                args.GetObjectData(@object)
-                    .HasBeenSerialized = true;
-                return Constructor(type,
-                    ((DateTime)@object).Ticks);
+                return syntaxFactoryLiteralExpression;
             }
-
-            if (@object is Guid)
-            {
-                args.GetObjectData(@object)
-                    .HasBeenSerialized = true;
-                return Constructor(type,
-                    @object.ToString());
-            }
-
-            if (type.IsEnum)
-            {
-                args.GetObjectData(@object)
-                    .HasBeenSerialized = true;
-                return SyntaxFactory.MemberAccessExpression(
-                    SyntaxKind.SimpleMemberAccessExpression,
-                    SyntaxFactory.IdentifierName(
-                        type.Name),
-                    SyntaxFactory.IdentifierName(
-                        @object.ToString()));
-            }
-
-            if (@object is Type)
-            {
-                return SyntaxFactory.TypeOfExpression(GetFullTypeSyntax(@object as Type));
-            }
-
-            if (@object.GetType()
-                .IsSubclassOfRawGeneric(typeof(KeyValuePair<,>)))
-            {
-                args.GetObjectData(@object)
-                    .HasBeenSerialized = true;
-                return
-                    SyntaxFactory.InitializerExpression(
-                        SyntaxKind.ComplexElementInitializerExpression,
-                        SyntaxFactory.SeparatedList<ExpressionSyntax>(
-                            new SyntaxNodeOrToken[]
-                            {
-                                SerializeObjectToInitialiser(
-                                    args,
-                                    @object.GetPropertyValue("Key"),
-                                    false,
-                                    null,
-                                    null,
-                                    false),
-                                SyntaxFactory.Token(
-                                    SyntaxKind.CommaToken),
-                                SerializeObjectToInitialiser(args,
-                                    @object.GetPropertyValue("Value"),
-                                    false,
-                                    null,
-                                    null,
-                                    false),
-                            }));
-            }
-
-            // Last resort before enumerables or classes
-            if (@object is string || type.IsPrimitive || (!type.IsClass && type.IsValueType))
-            {
-                args.GetObjectData(@object)
-                    .HasBeenSerialized = true;
-                return SyntaxFactoryLiteralExpression(@object,
-                    type);
-            }
-
+            var type = @object.GetType();
             var enumerable = @object as IEnumerable;
-            if (type.IsArray)
-            {
-                args.GetObjectData(@object)
-                    .HasBeenSerialized = true;
-                return SyntaxFactory.ArrayCreationExpression(
-                    SyntaxFactory.ArrayType(GetTypeSyntax(type.GetElementType()))
-                        .WithRankSpecifiers(
-                            SyntaxFactory.SingletonList(
-                                SyntaxFactory.ArrayRankSpecifier(
-                                    SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                        SyntaxFactory.OmittedArraySizeExpression())))))
-                                        .NormalizeWhitespace()
-                    .WithInitializer(
-                        SyntaxFactory.InitializerExpression(
-                            type.IsArray
-                                ? SyntaxKind.ArrayInitializerExpression
-                                : SyntaxKind.CollectionInitializerExpression,
-                            SyntaxFactory.SeparatedList<ExpressionSyntax>(
-                                SerializeEnumerableElements(args,
-                                    enumerable)))).NormalizeWhitespace();
-            }
             // We're serializing an object
             var dependencyResult = args.Dependencies[@object];
             var isCircular = dependencyResult != null &&
@@ -778,7 +698,8 @@ namespace Brandless.ObjectSerializer
                         : null;
                 args.GetObjectData(@object)
                     .HasBeenSerialized = true;
-                SerializeToStandaloneObject(args,
+                SerializeToStandaloneObject(
+                    args,
                     @object,
                     instanceName,
                     description,
@@ -813,6 +734,138 @@ namespace Brandless.ObjectSerializer
             //	}
         }
 
+        private bool SerializeObject(CSharpObjectSerializerInstanceArguments args, object @object,
+            out ExpressionSyntax syntaxFactoryLiteralExpression)
+        {
+            var type = @object.GetType();
+            if (@object is DateTime)
+            {
+                args.GetObjectData(@object)
+                    .HasBeenSerialized = true;
+                {
+                    syntaxFactoryLiteralExpression = Constructor(args, type,
+                        ((DateTime) @object).Ticks);
+                    return true;
+                }
+            }
+
+            if (@object is DateTimeOffset)
+            {
+                args.GetObjectData(@object)
+                    .HasBeenSerialized = true;
+                {
+                    syntaxFactoryLiteralExpression = Constructor(args, type,
+                        new DateTime(((DateTimeOffset) @object).Ticks)
+                    );
+                    return true;
+                }
+            }
+
+            if (@object is Guid)
+            {
+                args.GetObjectData(@object)
+                    .HasBeenSerialized = true;
+                {
+                    syntaxFactoryLiteralExpression = Constructor(args, type,
+                        @object.ToString());
+                    return true;
+                }
+            }
+
+            if (type.IsEnum)
+            {
+                args.GetObjectData(@object)
+                    .HasBeenSerialized = true;
+                {
+                    syntaxFactoryLiteralExpression = SyntaxFactory.MemberAccessExpression(
+                        SyntaxKind.SimpleMemberAccessExpression,
+                        SyntaxFactory.IdentifierName(
+                            type.Name),
+                        SyntaxFactory.IdentifierName(
+                            @object.ToString()));
+                    return true;
+                }
+            }
+
+            if (@object is Type)
+            {
+                {
+                    syntaxFactoryLiteralExpression = SyntaxFactory.TypeOfExpression(GetFullTypeSyntax(@object as Type));
+                    return true;
+                }
+            }
+
+            if (@object.GetType()
+                .IsSubclassOfRawGeneric(typeof(KeyValuePair<,>)))
+            {
+                args.GetObjectData(@object)
+                    .HasBeenSerialized = true;
+                {
+                    syntaxFactoryLiteralExpression = SyntaxFactory.InitializerExpression(
+                        SyntaxKind.ComplexElementInitializerExpression,
+                        SyntaxFactory.SeparatedList<ExpressionSyntax>(
+                            new SyntaxNodeOrToken[]
+                            {
+                                SerializeObjectToInitialiser(
+                                    args,
+                                    @object.GetPropertyValue("Key"),
+                                    false,
+                                    null,
+                                    null,
+                                    false),
+                                SyntaxFactory.Token(
+                                    SyntaxKind.CommaToken),
+                                SerializeObjectToInitialiser(args,
+                                    @object.GetPropertyValue("Value"),
+                                    false,
+                                    null,
+                                    null,
+                                    false),
+                            }));
+                    return true;
+                }
+            }
+
+            // Last resort before enumerables or classes
+            if (@object is string || type.IsPrimitive || (!type.IsClass && type.IsValueType))
+            {
+                args.GetObjectData(@object)
+                    .HasBeenSerialized = true;
+                {
+                    syntaxFactoryLiteralExpression = SyntaxFactoryLiteralExpression(@object,
+                        type);
+                    return true;
+                }
+            }
+
+            if (type.IsArray)
+            {
+                args.GetObjectData(@object)
+                    .HasBeenSerialized = true;
+                {
+                    syntaxFactoryLiteralExpression = SyntaxFactory.ArrayCreationExpression(
+                            SyntaxFactory.ArrayType(GetTypeSyntax(type.GetElementType()))
+                                .WithRankSpecifiers(
+                                    SyntaxFactory.SingletonList(
+                                        SyntaxFactory.ArrayRankSpecifier(
+                                            SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
+                                                SyntaxFactory.OmittedArraySizeExpression())))))
+                        .NormalizeWhitespace()
+                        .WithInitializer(
+                            SyntaxFactory.InitializerExpression(
+                                type.IsArray
+                                    ? SyntaxKind.ArrayInitializerExpression
+                                    : SyntaxKind.CollectionInitializerExpression,
+                                SyntaxFactory.SeparatedList<ExpressionSyntax>(
+                                    SerializeEnumerableElements(args,
+                                        @object as IEnumerable)))).NormalizeWhitespace();
+                    return true;
+                }
+            }
+            syntaxFactoryLiteralExpression = null;
+            return false;
+        }
+
         public Type ReturnType { get; set; }
 
         private static ExpressionSyntax SyntaxFactoryLiteralExpression(object @object, Type type)
@@ -844,8 +897,8 @@ namespace Brandless.ObjectSerializer
                     SyntaxKind.CharacterLiteralExpression,
                     SyntaxFactoryLiteral(
                         @object
-                        )
-                    );
+                    )
+                );
             }
             return SyntaxFactory.LiteralExpression(
                 SyntaxKind.StringLiteralExpression,
@@ -855,9 +908,18 @@ namespace Brandless.ObjectSerializer
                 );
         }
 
-        private static ObjectCreationExpressionSyntax Constructor(
-            Type type, object value)
+        private ObjectCreationExpressionSyntax Constructor(
+            CSharpObjectSerializerInstanceArguments args,
+            Type type, 
+            object value)
         {
+            if (!SerializeObject(args, value, out var syntax))
+            {
+                syntax = SyntaxFactory.LiteralExpression(
+                    SyntaxKind.TrueLiteralExpression,
+                    SyntaxFactoryLiteral(value)
+                );
+            }
             return SyntaxFactory.ObjectCreationExpression(
                 GetFullTypeSyntax(type))
                 .NormalizeWhitespace2()
@@ -865,10 +927,7 @@ namespace Brandless.ObjectSerializer
                     SyntaxFactory.ArgumentList(
                         SyntaxFactory.SingletonSeparatedList(
                             SyntaxFactory.Argument(
-                                SyntaxFactory.LiteralExpression(
-                                    SyntaxKind.TrueLiteralExpression,
-                                    SyntaxFactoryLiteral(value)
-                                    )
+                                syntax
                                 )
                             )
                         )
@@ -1157,7 +1216,11 @@ namespace Brandless.ObjectSerializer
 
         private static bool IsSameAsDefaultValueAfterInitialise(PropertyInfo property, object value)
         {
-            return property.GetValue(Activator.CreateInstance(property.DeclaringType)) == value;
+            if (property.DeclaringType.TryCreateInstance(out var instance))
+            {
+                return property.GetValue(instance) == value;
+            }
+            return false;
         }
 
         private void SerializePropertyToPostParentInitialiseAssignment(
@@ -1170,13 +1233,21 @@ namespace Brandless.ObjectSerializer
                 args,
                 propertyOwner,
                 property);
-            var binaryExpressionSyntax = SyntaxFactory.AssignmentExpression(
+            var assignmentExpressionSyntax = SyntaxFactory.AssignmentExpression(
                 SyntaxKind.SimpleAssignmentExpression,
                 assignmentExpression,
                 valueToAssignReferenceSyntax);
             var expressionStatementSyntax =
-                SyntaxFactory.ExpressionStatement(binaryExpressionSyntax);
-            args.CircularStatements.Add(expressionStatementSyntax);
+                SyntaxFactory.ExpressionStatement(assignmentExpressionSyntax);
+            if (!typeof(string).IsAssignableFrom(property.PropertyType) &&
+                typeof(IEnumerable).IsAssignableFrom(property.PropertyType))
+            {
+                args.LateCircularStatements.Add(expressionStatementSyntax);
+            }
+            else
+            {
+                args.CircularStatements.Add(expressionStatementSyntax);
+            }
         }
 
         private ExpressionSyntax GetAssignmentExpression(CSharpObjectSerializerInstanceArguments args,

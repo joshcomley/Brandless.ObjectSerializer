@@ -166,5 +166,55 @@ namespace System
             }
         }
 
+	    public static object DefaultValue(this Type type)
+	    {
+	        return typeof(TypeExtensions).GetMethod(nameof(GetDefaultValue))
+	            .MakeGenericMethod(type)
+	            .Invoke(null, null);
+	    }
+
+	    public static object GetDefaultValue<T>()
+	    {
+	        return default(T);
+	    }
+
+	    public static bool TryCreateInstance(this Type type, out object instance)
+	    {
+	        var constructors = type.GetConstructors();
+	        if (constructors.Any(c => c.GetParameters().Length == 0))
+	        {
+	            try
+	            {
+	                instance = Activator.CreateInstance(type);
+	                return true;
+	            }
+	            catch { }
+
+	        }
+	        foreach (var constructor in constructors)
+	        {
+	            try
+	            {
+	                var parameters = new List<object>();
+	                foreach (var p in constructor.GetParameters())
+	                {
+	                    if (p.HasDefaultValue)
+	                    {
+	                        parameters.Add(p.DefaultValue);
+	                    }
+	                    else
+	                    {
+	                        parameters.Add(p.ParameterType.DefaultValue());
+	                    }
+	                }
+	                instance = constructor.Invoke(parameters.ToArray());
+	                return true;
+	            }
+	            catch { }
+	            break;
+	        }
+	        instance = null;
+	        return false;
+	    }
     }
 }

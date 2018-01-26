@@ -16,7 +16,9 @@ namespace Brandless.ObjectSerializer
 		public CompilationUnitSyntax CompilationUnit { get; set; }
 		public Dictionary<object, StatementSyntax> ObjectStatements { get; set; }
 		public Dictionary<object, StatementSyntax> EndObjectStatements { get; set; }
+		public Dictionary<object, StatementSyntax> LateCircularObjectStatements { get; set; }
 		public List<StatementSyntax> CircularStatements { get; set; }
+		public List<StatementSyntax> LateCircularStatements { get; set; }
 		public List<StatementSyntax> ThisStatements { get; set; }
 		public List<string> Namespaces { get; set; }
 
@@ -31,9 +33,11 @@ namespace Brandless.ObjectSerializer
 			CompilationUnit = compilationUnit;
 			ObjectStatements = new Dictionary<object, StatementSyntax>();
 			EndObjectStatements = new Dictionary<object, StatementSyntax>();
+			LateCircularObjectStatements = new Dictionary<object, StatementSyntax>();
 			ThisStatements = new List<StatementSyntax>();
 			ObjectsSerialized = new Dictionary<object, CSharpObjectSerializeData>();
 			CircularStatements = new List<StatementSyntax>();
+		    LateCircularStatements = new List<StatementSyntax>();
 			InitialiserDependencies = new Dictionary<object, List<object>>();
 			Namespaces = new List<string>();
 		}
