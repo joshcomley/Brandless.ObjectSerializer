@@ -432,7 +432,7 @@ namespace Brandless.ObjectSerializer
             }
         }
 
-        private void SerializeToStandaloneObject(CSharpObjectSerializerInstanceArguments args, 
+        private void SerializeToStandaloneObject(CSharpObjectSerializerInstanceArguments args,
             object @object,
             string instanceName, string description = null, bool isCircular = false)
         {
@@ -455,7 +455,7 @@ namespace Brandless.ObjectSerializer
                         };
                 var objectStatements =
                     isCircular
-                        ? 
+                        ?
                         (@object is IEnumerable ? args.LateCircularObjectStatements : args.EndObjectStatements)
                         : args.ObjectStatements;
                 objectStatements.Add(
@@ -744,7 +744,7 @@ namespace Brandless.ObjectSerializer
                     .HasBeenSerialized = true;
                 {
                     syntaxFactoryLiteralExpression = Constructor(args, type,
-                        ((DateTime) @object).Ticks);
+                        ((DateTime)@object).Ticks);
                     return true;
                 }
             }
@@ -755,9 +755,37 @@ namespace Brandless.ObjectSerializer
                     .HasBeenSerialized = true;
                 {
                     syntaxFactoryLiteralExpression = Constructor(args, type,
-                        new DateTime(((DateTimeOffset) @object).Ticks)
+                        ((DateTimeOffset)@object).Ticks, TimeSpan.Zero
                     );
                     return true;
+                }
+            }
+
+            if (@object is TimeSpan)
+            {
+                var ts = (TimeSpan)@object;
+                if (ts == TimeSpan.Zero)
+                {
+                    var left = SyntaxFactory.IdentifierName(nameof(TimeSpan));
+                    var right = SyntaxFactory.IdentifierName(nameof(TimeSpan.Zero));
+                    syntaxFactoryLiteralExpression =
+                        SyntaxFactory.MemberAccessExpression(
+                            SyntaxKind.SimpleMemberAccessExpression,
+                            left,
+                            right)
+                        ;
+                    return true;
+                }
+                else
+                {
+                    args.GetObjectData(@object)
+                        .HasBeenSerialized = true;
+                    {
+                        syntaxFactoryLiteralExpression = Constructor(args, type,
+                            ts.Ticks
+                        );
+                        return true;
+                    }
                 }
             }
 
@@ -789,10 +817,8 @@ namespace Brandless.ObjectSerializer
 
             if (@object is Type)
             {
-                {
-                    syntaxFactoryLiteralExpression = SyntaxFactory.TypeOfExpression(GetFullTypeSyntax(@object as Type));
-                    return true;
-                }
+                syntaxFactoryLiteralExpression = SyntaxFactory.TypeOfExpression(GetFullTypeSyntax(@object as Type));
+                return true;
             }
 
             if (@object.GetType()
@@ -910,26 +936,32 @@ namespace Brandless.ObjectSerializer
 
         private ObjectCreationExpressionSyntax Constructor(
             CSharpObjectSerializerInstanceArguments args,
-            Type type, 
-            object value)
+            Type type,
+            params object[] values)
         {
-            if (!SerializeObject(args, value, out var syntax))
+            var arguments = new List<ArgumentSyntax>();
+            foreach (var value in values)
             {
-                syntax = SyntaxFactory.LiteralExpression(
-                    SyntaxKind.TrueLiteralExpression,
-                    SyntaxFactoryLiteral(value)
-                );
+                if (!SerializeObject(args, value, out var syntax))
+                {
+                    syntax = SyntaxFactory.LiteralExpression(
+                        SyntaxKind.TrueLiteralExpression,
+                        SyntaxFactoryLiteral(value)
+                    );
+                }
+                arguments.Add(SyntaxFactory.Argument(syntax));
             }
             return SyntaxFactory.ObjectCreationExpression(
                 GetFullTypeSyntax(type))
                 .NormalizeWhitespace2()
                 .WithArgumentList(
                     SyntaxFactory.ArgumentList(
-                        SyntaxFactory.SingletonSeparatedList(
-                            SyntaxFactory.Argument(
-                                syntax
-                                )
-                            )
+                        SyntaxFactory.SeparatedList(arguments)
+                        //SyntaxFactory.SingletonSeparatedList(
+                        //    SyntaxFactory.Argument(
+                        //        syntax
+                        //        )
+                        //    )
                         )
                 );
         }

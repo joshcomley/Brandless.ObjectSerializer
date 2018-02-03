@@ -12,9 +12,9 @@ namespace Brandless.ObjectSerializer.ConsoleApp
         static void Main(string[] args)
         {
             var list = new List<Person>();
-            var person1 = new Person("Paulina", 24);
-            var person2 = new Person("Josh", 33);
-            var person3 = new Person("Bob", 33);
+            var person1 = new Person("Paulina", 24, new DateTimeOffset(1993, 7, 10, 12, 33, 22, new TimeSpan()));
+            var person2 = new Person("Josh", 33, new DateTimeOffset(1984, 7, 2, 1, 15, 5, new TimeSpan()));
+            var person3 = new Person("Bob", 33, new DateTimeOffset(1988, 10, 11, 18, 47, 12, new TimeSpan()));
             person3.FavouritePerson = person2;
             person1.FavouritePerson = person1;
             person1.Addresses.Add(new Address("My house", "AB1 C23"));
@@ -28,6 +28,15 @@ namespace Brandless.ObjectSerializer.ConsoleApp
             //var options = new CSharpSerializeToClassParameters("InMemoryDb");
             var options = new CSharpSerializeToClassParameters("MyClass");
             var serializer = new CSharpObjectSerializer(options);
+            options.IgnoreConditions.Add(new IgnoreCondition((o, info) =>
+            {
+                if (info.Name == nameof(Person.IgnoreThis))
+                {
+                    return true;
+                }
+
+                return false;
+            }));
             var code = serializer.Serialize(list);
             Console.WriteLine(code);
             File.WriteAllText(@"d:\code\temp-formatted.cs", code);
