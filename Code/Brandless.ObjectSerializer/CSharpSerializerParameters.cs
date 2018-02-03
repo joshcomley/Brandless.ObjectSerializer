@@ -9,8 +9,9 @@ namespace Brandless.ObjectSerializer
 		private DescriptionFormatter _descriptionFormatter;
 		private InstanceNameFormatter _instanceNameFormatter;
         public string InstanceName { get; set; }
+	    public bool AllowObjectInitializer { get; set; } = true;
 
-		public string Namespace { get; set; }
+        public string Namespace { get; set; }
 
 		public DescriptionFormatter DescriptionFormatter
 		{

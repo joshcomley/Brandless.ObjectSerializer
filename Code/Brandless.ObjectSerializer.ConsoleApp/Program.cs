@@ -27,6 +27,7 @@ namespace Brandless.ObjectSerializer.ConsoleApp
             list.Add(person3);
             //var options = new CSharpSerializeToClassParameters("InMemoryDb");
             var options = new CSharpSerializeToClassParameters("MyClass");
+            options.AllowObjectInitializer = false;
             var serializer = new CSharpObjectSerializer(options);
             var code = serializer.Serialize(list);
             Console.WriteLine(code);

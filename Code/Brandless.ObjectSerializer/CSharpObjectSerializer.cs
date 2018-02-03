@@ -270,7 +270,7 @@ namespace Brandless.ObjectSerializer
 
             // Reformatting, for now, is disgustingly hacky as I cannot figure out
             // how to do it properly yet
-            code = ReformatCode(code);
+            //code = ReformatCode(code);
             code = Regex.Replace(code, @"\s*__NEW__\s*", " ");
             var syntax = SyntaxFactory.ParseCompilationUnit(code).SyntaxTree.GetRoot();
             syntax = new WhiteSpaceRewriter().Visit(syntax);
@@ -593,8 +593,16 @@ namespace Brandless.ObjectSerializer
             var enumerable = @object as IEnumerable;
             // We're serializing an object
             var dependencyResult = args.Dependencies[@object];
-            var isCircular = dependencyResult != null &&
-                            dependencyResult.HasTopLevelCircular();
+            bool isCircular;
+            if (!Parameters.AllowObjectInitializer)
+            {
+                isCircular = true;
+            }
+            else
+            {
+                isCircular = dependencyResult != null &&
+                    dependencyResult.HasTopLevelCircular();
+            }
             var multipleUsages = args.Dependencies.IsDependedUponMultipleTimes(@object);
             if (
                 (
@@ -1119,12 +1127,20 @@ namespace Brandless.ObjectSerializer
             {
                 var value = property.GetValue(@object);
                 var dependencyResult = args.Dependencies[value];
-                var isCircular =
-                    (!(Parameters is CSharpSerializeToClassParameters) || value != args.Object)
-                    //&& !(value is IEnumerable)
-                    && dependencyResult != null
-                    && dependencyResult.HasTopLevelCircular()
-                    ;
+                bool isCircular;
+                if (!Parameters.AllowObjectInitializer)
+                {
+                    isCircular = true;
+                }
+                else
+                {
+                    isCircular =
+                        (!(Parameters is CSharpSerializeToClassParameters) || value != args.Object)
+                        //&& !(value is IEnumerable)
+                        && dependencyResult != null
+                        && dependencyResult.HasTopLevelCircular()
+                        ;
+                }
                 var valueToAssignReferenceSyntax =
                     SerializeAndOrGetObjectReferenceSyntax(args,
                         value,
