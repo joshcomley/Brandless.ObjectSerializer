@@ -5,7 +5,7 @@ namespace Brandless.ObjectSerializer
 		public string ClassName { get; set; }
 		public string BaseClassName { get; set; }
 
-		public CSharpSerializeToClassParameters(string className, string instanceName = null, string baseClassName = null)
+	    public CSharpSerializeToClassParameters(string className, string instanceName = null, string baseClassName = null)
             :base(instanceName)
 		{
 			ClassName = className;
