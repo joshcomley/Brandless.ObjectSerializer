@@ -1,11 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.0</TargetFramework>
+    <TargetFrameworks>netcoreapp2.0;netstandard2.0;net46</TargetFrameworks>
     <Configurations>Debug;Release;TypeScript Debug</Configurations>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Brandless" Version="0.0.7" />
     <PackageReference Include="Microsoft.CodeAnalysis" Version="2.6.1" />
   </ItemGroup>
 

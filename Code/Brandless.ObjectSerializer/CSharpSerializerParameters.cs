@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Brandless.Extensions;
+using Brandless.ObjectSerializer.Extensions;
 
 namespace Brandless.ObjectSerializer
 {

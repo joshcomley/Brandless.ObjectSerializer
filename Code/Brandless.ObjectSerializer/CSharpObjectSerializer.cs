@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using Brandless.Extensions;
 using Brandless.ObjectSerializer.Extensions;
 using Brandless.ObjectSerializer.GuidTools;
 using Microsoft.CodeAnalysis;
