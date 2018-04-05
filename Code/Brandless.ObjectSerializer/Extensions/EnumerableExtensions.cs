@@ -65,7 +65,9 @@ namespace Brandless.ObjectSerializer.Extensions
 		{
 			_castGenericMethod = _castGenericMethod ?? 
                 typeof(EnumerableExtensions).GetRuntimeMethods().Single(m => m.Name == "CastGeneric");
-			return (IEnumerable)_castGenericMethod.MakeGenericMethod(type).Invoke(null, new object[] { source });
+			return (IEnumerable)_castGenericMethod
+			    .MakeGenericMethod(type)
+			    .Invoke(null, new object[] { source });
 		}
 
 		// ReSharper disable once UnusedMember.Local
