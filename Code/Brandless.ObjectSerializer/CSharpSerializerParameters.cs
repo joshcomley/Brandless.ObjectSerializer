@@ -10,7 +10,9 @@ namespace Brandless.ObjectSerializer
 		public List<IgnoreCondition> IgnoreConditions { get; set; } 
 		private DescriptionFormatter _descriptionFormatter;
 		private InstanceNameFormatter _instanceNameFormatter;
+        public bool InstanceOnly { get; set; }
         public string InstanceName { get; set; }
+	    public bool Beautify { get; set; } = true;
 	    public bool AllowObjectInitializer { get; set; } = true;
 
         public string Namespace { get; set; }

@@ -24,9 +24,48 @@ namespace Brandless.ObjectSerializer.Tests
             list.Add(person3);
             //var options = new CSharpSerializeToClassParameters("InMemoryDb");
             var options = new CSharpSerializeToObjectParameters();
+            options.InstanceOnly = true;
             var serializer = new CSharpObjectSerializer(options);
             var code = serializer.Serialize(list);
-            File.WriteAllText(@"d:\code\temp.cs", code);
+            Assert.AreEqual(@"new List<Person>
+{
+    new Person
+    {
+        Name = ""Paulina"",
+        Age = 24,
+        Addresses = new List<Address>
+        {
+            new Address
+            {
+                Street = ""My house"",
+                PostCode = ""AB1 C23""
+            },
+            new Address
+            {
+                Street = ""My other house"",
+                PostCode = ""DE2 F34""
+            }
+        }
+    },
+    new Person
+    {
+        Name = ""Josh"",
+        Age = 33,
+        Addresses = new List<Address>
+        {
+            new Address
+            {
+                Street = ""Big Place"",
+                PostCode = ""XY4 Z56""
+            }
+        }
+    },
+    new Person
+    {
+        Name = ""Bob"",
+        Age = 33
+    }
+}", code);
         }
     }
 }
