@@ -6,27 +6,36 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Brandless.ObjectSerializer
 {
-	internal static class CodeAnalysisExtensions
-	{
-		public static IEnumerable<StatementSyntax> AddComment(this IEnumerable<StatementSyntax> statementSyntax, string comment)
-		{
-			return statementSyntax.Union(new StatementSyntax[]
-			{
-				GetCommentStatementSyntax(comment),
-			});
-		}
+    internal static class CodeAnalysisExtensions
+    {
+        public static IEnumerable<StatementSyntax> AddComment(this IEnumerable<StatementSyntax> statementSyntax, string comment)
+        {
+            return statementSyntax.Union(new StatementSyntax[]
+            {
+                ToCommentStatementSyntax(comment),
+            });
+        }
 
-		private static EmptyStatementSyntax GetCommentStatementSyntax(string comment)
-		{
-			// Bit hacky, but does the job
-			return SyntaxFactory.EmptyStatement()
-				.WithSemicolonToken(SyntaxFactory.MissingToken(SyntaxKind.SemicolonToken))
-				.WithLeadingTrivia(
-			        SyntaxFactory.LineFeed,
+        internal static EmptyStatementSyntax ToCommentStatementSyntax(this string comment, bool onOwnLine = true)
+        {
+            // Bit hacky, but does the job
+            if (onOwnLine)
+            {
+                return SyntaxFactory.EmptyStatement()
+                    .WithSemicolonToken(SyntaxFactory.MissingToken(SyntaxKind.SemicolonToken))
+                    .WithLeadingTrivia(
+                        SyntaxFactory.CarriageReturnLineFeed,
+                        SyntaxFactory.Comment(
+                            comment)
+                    )
+                    .WithTrailingTrivia(SyntaxFactory.CarriageReturnLineFeed);
+            }
+            return SyntaxFactory.EmptyStatement()
+                .WithSemicolonToken(SyntaxFactory.MissingToken(SyntaxKind.SemicolonToken))
+                .WithLeadingTrivia(
                     SyntaxFactory.Comment(
-						comment)
-				)
-                .WithTrailingTrivia(SyntaxFactory.LineFeed);
-		}
-	}
+                        comment)
+                );
+        }
+    }
 }

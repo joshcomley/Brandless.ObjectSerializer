@@ -26,7 +26,7 @@ namespace Brandless.ObjectSerializer.ConsoleApp
             list.Add(person2);
             list.Add(person3);
             //var options = new CSharpSerializeToClassParameters("InMemoryDb");
-            var options = new CSharpSerializeToClassParameters("MyClass");
+            var options = new CSharpSerializerParameters("MyClass");
             options.AllowObjectInitializer = false;
             var serializer = new CSharpObjectSerializer(options);
             options.IgnoreConditions.Add(new IgnoreCondition((o, info) =>
@@ -39,8 +39,8 @@ namespace Brandless.ObjectSerializer.ConsoleApp
                 return false;
             }));
             var code = serializer.Serialize(list);
-            Console.WriteLine(code);
-            File.WriteAllText(@"d:\code\temp-formatted.cs", code);
+            Console.WriteLine(code.Class);
+            File.WriteAllText(@"d:\code\temp-formatted.cs", code.Class);
         }
 
         /// <summary>

@@ -9,10 +9,5 @@ namespace Brandless.ObjectSerializer.Extensions
             //return node;
             return (TNode)node.NormalizeWhitespace(indentation, eol, elasticTrivia);
         }
-        public static TNode NormalizeWhitespace3<TNode>(this TNode node, string indentation = "    ", string eol = "\r\n", bool elasticTrivia = false) where TNode : SyntaxNode
-        {
-            return node;
-            return (TNode)node.NormalizeWhitespace(indentation, eol, elasticTrivia);
-        }
     }
 }

@@ -5,16 +5,12 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using System.Text.RegularExpressions;
 using Brandless.Extensions;
 using Brandless.ObjectSerializer.Extensions;
 using Brandless.ObjectSerializer.GuidTools;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Formatting;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Formatting;
-using Microsoft.CodeAnalysis.Text;
 using TsBeautify;
 
 namespace Brandless.ObjectSerializer
@@ -22,28 +18,38 @@ namespace Brandless.ObjectSerializer
     public class CSharpObjectSerializer
     {
         private const string ObjectSerializedGuidKey = @"[#ObjectSerializedGuid#]";
-        private const string NewLineComment = @"NEWLINE";
-        public const string RemoveSpaceToken = @"/*REMOVE_SPACE*/";
         private static readonly Guid Rfc4112Namespace = new Guid("23c5ef80-5369-4c11-b900-c52cfe7a3f3e");
+        private object AllowThisObject { get; set; }
 
         public CSharpObjectSerializer(
             CSharpSerializerParameters parameters = null
-            )
+        )
         {
-            Parameters = parameters ?? new CSharpSerializeToObjectParameters();
+            Parameters = parameters ?? new CSharpSerializerParameters();
         }
 
         public CSharpSerializerParameters Parameters { get; set; }
 
-        private object AllowThisObject { get; set; }
+        private ObjectToObjectSerializeOutput Output { get; set; }
 
-        public string Serialize(object @object)
+        public Type ReturnType { get; set; }
+
+        public string SerializeToString(object @object)
         {
-            return Serialize(@object,
-                null);
+            return Serialize(@object).Class;
         }
 
-        private string Serialize(object @object, string className)
+        private string SerializeToString(object @object, string className)
+        {
+            return Serialize(@object, className).Class;
+        }
+
+        public ObjectToObjectSerializeOutput Serialize(object @object)
+        {
+            return Serialize(@object, null);
+        }
+
+        private ObjectToObjectSerializeOutput Serialize(object @object, string className)
         {
             var serialize = Serialize(
                 new CSharpObjectSerializerInstanceArguments(
@@ -54,138 +60,159 @@ namespace Brandless.ObjectSerializer
             return serialize;
         }
 
-        private string Serialize(CSharpObjectSerializerInstanceArguments args, string className = null)
+        private ObjectToObjectSerializeOutput Serialize(CSharpObjectSerializerInstanceArguments args, string className = null)
         {
+            Output = new ObjectToObjectSerializeOutput();
             string baseClassName = null;
             var rootData = args.GetObjectData(args.Object);
             rootData.HasBeenSerialized = true;
             rootData.IsRoot = true;
-            var objectParams = Parameters as CSharpSerializeToObjectParameters;
-            if (objectParams != null)
-            {
-                SerializeToStandaloneObject(args,
-                    args.Object,
-                    objectParams.InstanceName);
-            }
-            string code = "";
-            if (!Parameters.InstanceOnly)
-            {
-                var classParams = Parameters as CSharpSerializeToClassParameters;
-                if (classParams != null)
-                {
-                    AllowThisObject = args.Object;
-                    SerializeToStandaloneObject(args,
-                        args.Object,
-                        Parameters.InstanceName);
-                    if (className == null)
-                    {
-                        className = classParams.ClassName;
-                    }
-                    baseClassName = classParams.BaseClassName;
-                }
-                if (className == null)
-                {
-                    className = "SerializedObject";
-                }
+            var code = "";
 
-                var orderedObjectStatements = GetOrderedObjectStatements(args);
-                if (args.ThisStatements.Any())
-                {
-                    orderedObjectStatements = orderedObjectStatements
-                        .AddComment(ToComment("Self"))
-                        .Union(args.ThisStatements);
-                }
-                var classDeclarationSyntax = SyntaxFactory.ClassDeclaration(
+            AllowThisObject = args.Object;
+            SerializeToStandaloneObject(
+                args,
+                args.Object,
+                Parameters.InstanceName);
+            if (className == null)
+            {
+                className = Parameters.ClassName;
+            }
+
+            baseClassName = Parameters.BaseClassName;
+
+            if (className == null)
+            {
+                className = "SerializedObject";
+            }
+
+            var orderedObjectStatements = GetOrderedObjectStatements(args).ToList();
+            if (args.ThisStatements.Any())
+            {
+                orderedObjectStatements = orderedObjectStatements
+                    .AddComment(ToComment("Self"))
+                    .Union(args.ThisStatements)
+                    .ToList();
+            }
+
+            if (!string.IsNullOrEmpty(Parameters.BeforeInstanceComment))
+            {
+                orderedObjectStatements.Insert(0, ToSingleLineCommentSyntax(Parameters.BeforeInstanceComment));
+            }
+            if (!string.IsNullOrEmpty(Parameters.AfterInstanceComment))
+            {
+                orderedObjectStatements.Add(ToSingleLineCommentSyntax(Parameters.AfterInstanceComment));
+            }
+
+            var classDeclarationSyntax = SyntaxFactory.ClassDeclaration(
                     className)
-                    .NormalizeWhitespace2()
-                    .WithModifiers(
-                        SyntaxFactory.TokenList(
-                            SyntaxFactory.Token(
-                                SyntaxKind.PublicKeyword))).NormalizeWhitespace2()
-                    .WithMembers(
-                        SyntaxFactory.SingletonList<MemberDeclarationSyntax>(
-                            SyntaxFactory.MethodDeclaration(
+                .NormalizeWhitespace2()
+                .WithModifiers(
+                    SyntaxFactory.TokenList(
+                        SyntaxFactory.Token(
+                            SyntaxKind.PublicKeyword))).NormalizeWhitespace2()
+                .WithMembers(
+                    SyntaxFactory.SingletonList<MemberDeclarationSyntax>(
+                        SyntaxFactory.MethodDeclaration(
                                 GetFullTypeSyntax(args.Object.GetType()),
                                 SyntaxFactory.Identifier(
-                                    "GetData"))
-                                .WithModifiers(
-                                    SyntaxFactory.TokenList(
-                                        SyntaxFactory.Token(
-                                            SyntaxKind.PublicKeyword)))
-                                            .NormalizeWhitespace2()
-                                .WithBody(
-                                    SyntaxFactory.Block(
-                                        SyntaxFactory.List(
-                                            orderedObjectStatements
-                                            ))).AddBodyStatements(
+                                    "GetData")).NormalizeWhitespace()
+                            .WithModifiers(
+                                SyntaxFactory.TokenList(
+                                    SyntaxFactory.Token(
+                                        SyntaxKind.PublicKeyword)))
+                            .NormalizeWhitespace2()
+                            .WithBody(
+                                SyntaxFactory.Block(
+                                    SyntaxFactory.List(
+                                        orderedObjectStatements
+                                    ))).AddBodyStatements(
                                 SyntaxFactory.ReturnStatement(
                                     SyntaxFactory.IdentifierName(Parameters.InstanceName)).NormalizeWhitespace()))
-                    );
-                if (!string.IsNullOrWhiteSpace(baseClassName))
-                {
-                    classDeclarationSyntax = classDeclarationSyntax.WithBaseList(
-                        SyntaxFactory.BaseList(
-                            SyntaxFactory.SingletonSeparatedList<BaseTypeSyntax>(
-                                SyntaxFactory.SimpleBaseType(SyntaxFactory.IdentifierName(
+                );
+            if (!string.IsNullOrWhiteSpace(baseClassName))
+            {
+                classDeclarationSyntax = classDeclarationSyntax.WithBaseList(
+                    SyntaxFactory.BaseList(
+                        SyntaxFactory.SingletonSeparatedList<BaseTypeSyntax>(
+                            SyntaxFactory.SimpleBaseType(
+                                SyntaxFactory.IdentifierName(
                                     baseClassName))
-                                )));
-                }
-                if (!string.IsNullOrWhiteSpace(Parameters.Namespace))
-                {
-                    args.CompilationUnit = args.CompilationUnit
+                        )));
+            }
+
+            if (!string.IsNullOrWhiteSpace(Parameters.Namespace))
+            {
+                args.CompilationUnit = args.CompilationUnit
                         .WithMembers(
                             SyntaxFactory.SingletonList<MemberDeclarationSyntax>(
                                 SyntaxFactory.NamespaceDeclaration(
-                                    SyntaxFactory.IdentifierName(
-                                        Parameters.Namespace)).NormalizeWhitespace2()
+                                        SyntaxFactory.IdentifierName(
+                                            Parameters.Namespace)).NormalizeWhitespace2()
                                     .WithMembers(
                                         SyntaxFactory.SingletonList<MemberDeclarationSyntax>(
                                             classDeclarationSyntax))
-                                ))
-                        ;
-                }
-                else
-                {
-                    args.CompilationUnit = args.CompilationUnit
+                            ))
+                    ;
+            }
+            else
+            {
+                args.CompilationUnit = args.CompilationUnit
                         .WithMembers(
                             SyntaxFactory.SingletonList<MemberDeclarationSyntax>(
                                 classDeclarationSyntax)
                         )
-                        ;
-                }
-                args.CompilationUnit = args.CompilationUnit.WithUsings(
-                    SyntaxFactory.List(
-                        args.Namespaces.Distinct()
-                            .Where(ns => string.IsNullOrWhiteSpace(Parameters.Namespace) || ns != Parameters.Namespace)
-                            .OrderBy(n => n)
-                            .Select(ns => SyntaxFactory.UsingDirective(
+                    ;
+            }
+
+            args.CompilationUnit = args.CompilationUnit.WithUsings(
+                SyntaxFactory.List(
+                    args.Namespaces.Distinct()
+                        .Where(ns => string.IsNullOrWhiteSpace(Parameters.Namespace) || ns != Parameters.Namespace)
+                        .OrderBy(n => n)
+                        .Select(
+                            ns => SyntaxFactory.UsingDirective(
                                 SyntaxFactory.IdentifierName(ns)).NormalizeWhitespace2())
-                        ));
-                code = FormatCode(args.CompilationUnit);
-            }
-            else
-            {
-                code = InitialiserCode;
-            }
+                ));
+            code = FormatCode(args.CompilationUnit);
 
             if (code.IndexOf(ObjectSerializedGuidKey) != -1)
             {
-                code = code.Replace(ObjectSerializedGuidKey,
-                    Rfc4122Guid.Create(Rfc4112Namespace,
-                        code)
+                code = code.Replace(
+                    ObjectSerializedGuidKey,
+                    Rfc4122Guid.Create(
+                            Rfc4112Namespace,
+                            code)
                         .ToString());
             }
+
+            Output.CompilationUnit = args.CompilationUnit;
             //code = Regex.Replace(code,
             //    @"\}[\w\r\n\t]+(?<Symbol>\;|,)",
             //    "}${Symbol}\r\n");
+            Output.Class = code;
             if (Parameters.Beautify)
             {
-                code = new TsBeautifier().Configure(c => c.OpenBlockOnNewLine = true).Beautify(code);
+                var tsBeautifier = new TsBeautifier().Configure(c => c.OpenBlockOnNewLine = true);
+                Output.Class = tsBeautifier.Beautify(Output.Class);
+                Output.Initialiser = tsBeautifier.Beautify(Output.Initialiser);
+                Output.Instance = tsBeautifier.Beautify(Output.Instance);
             }
+
             //			code = Regex.Replace(code, @"\, ", ",\r\n");
             //code = code.Replace(NewLineComment,
             //    "\n");
-            return code;
+            return Output;
+        }
+
+        private static EmptyStatementSyntax ToSingleLineCommentSyntax(string comment)
+        {
+            return ToComment(comment).ToCommentStatementSyntax();
+        }
+
+        private static EmptyStatementSyntax ToInlineCommentSyntax(string comment)
+        {
+            return ToInlineComment(comment).ToCommentStatementSyntax(false);
         }
 
         /// <summary>
@@ -206,59 +233,15 @@ namespace Brandless.ObjectSerializer
             //var commentsEnabled = Parameters.DescriptionFormatter.Enabled;
             //Parameters.DescriptionFormatter.Enabled = false;
             var tree1 = SyntaxFactory.ParseSyntaxTree(
-                Serialize(@object, @object.GetType().Name)
-                );
+                SerializeToString(@object, @object.GetType().Name)
+            );
             var tree2 = SyntaxFactory.ParseSyntaxTree(
                 File.ReadAllText(pathToCompareTo)
-                );
+            );
             //			Parameters.DescriptionFormatter.Enabled = commentsEnabled;
             return
                 NormaliseForComparison(tree1.GetCompilationUnitRoot()) !=
                 NormaliseForComparison(tree2.GetCompilationUnitRoot());
-        }
-
-        /// <summary>
-        ///     Serializes and object and then writes the serialized code
-        ///     and the actual code on file next to each other in the specified
-        ///     folder for comparison with a comparison tool
-        /// </summary>
-        /// <param name="path"></param>
-        /// <param name="@object"></param>
-        /// <param name="pathToCompareTo"></param>
-        public void WriteForCompare(
-            string path,
-            object @object,
-            string pathToCompareTo)
-        {
-            if (path == null)
-            {
-                path = @"C:\Admin\CodeCompare";
-            }
-            var tree1 = SyntaxFactory.ParseSyntaxTree(
-                Serialize(@object)
-                );
-            var tree2 = SyntaxFactory.ParseSyntaxTree(
-                File.ReadAllText(pathToCompareTo)
-                );
-            if (!Directory.Exists(path))
-            {
-                Directory.CreateDirectory(path);
-            }
-            File.WriteAllText(Path.Combine(path,
-                "Compare_CompiledObject.cs"),
-                NormaliseForComparison(tree1.GetCompilationUnitRoot()));
-            File.WriteAllText(Path.Combine(path,
-                "Compare_ObjectCodeFile.cs"),
-                NormaliseForComparison(tree2.GetCompilationUnitRoot()));
-        }
-
-        public void SerializeTo(
-            object @object,
-            string path
-            )
-        {
-            File.WriteAllText(path,
-                Serialize(@object));
         }
 
         private static string NormaliseForComparison(SyntaxNode compilationUnit)
@@ -270,142 +253,17 @@ namespace Brandless.ObjectSerializer
 
         private static string FormatCode(SyntaxNode compilationUnit)
         {
-            //compilationUnit = new KeywordRewriter().Visit(compilationUnit);
-            var code =
-                    compilationUnit
-                        //.NormalizeWhitespace()
-                        .ToFullString()
-                //.Replace(NewLineComment, "\r\n")
-                ;
-            //var compilationUnitSyntax = SyntaxFactory.ParseCompilationUnit(code);
-            //var node = compilationUnitSyntax.SyntaxTree.GetRoot();
-            //node = Formatter.Format(node, new AdhocWorkspace());
-            //return node.ToFullString();
-            //compilationUnit = SyntaxFactory.ParseCompilationUnit(code);
-
-            // Reformatting, for now, is disgustingly hacky as I cannot figure out
-            // how to do it properly yet
-            //code = ReformatCode(code);
-
-
-            //code = Regex.Replace(code, @"\s*__NEW__\s*", " ");
-            //var syntax = SyntaxFactory.ParseCompilationUnit(code).SyntaxTree.GetRoot();
-            //syntax = new WhiteSpaceRewriter().Visit(syntax);
-
-            //syntax = syntax.ReplaceTrivia(syntax.DescendantTrivia()
-            //    .Where(t => t.IsKind(SyntaxKind.EndOfLineTrivia)),
-            //    (t, _) => SyntaxFactory.SyntaxTrivia(t.Kind(), "\nNEWLINE"));
-            //code = syntax.ToFullString();
-            //code = Regex.Replace(code, $@"\s*{Regex.Escape(RemoveSpaceToken)}\s*", "");
-            //code = Regex.Replace(code, $@"^\s*{Regex.Escape("NEWLINE")}\s*$", "DELETELINE", RegexOptions.Multiline);
-            //var regex = new Regex("DELETELINE");
-            //code = regex.Replace(code, "NEWLINE", 1);
-            //code = code.Replace("NEWLINE", "");
-            //code = string.Join("\n", code.Split('\n').Where(l => l != "DELETELINE").ToArray());
+            var code = compilationUnit.ToFullString();
             return code;
         }
-
-        private static string ReformatCode(string code)
-        {
-            using (var workspace = new AdhocWorkspace())
-            {
-                var options = workspace.Options;
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLineForMembersInObjectInit, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLineForCatch, true);
-                options = options.WithChangedOption(
-                    CSharpFormattingOptions.NewLinesForBracesInObjectCollectionArrayInitializers, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLineForClausesInQuery, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLineForElse, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLineForFinally, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLineForMembersInAnonymousTypes, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInAccessors, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInAnonymousMethods, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInAnonymousTypes, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInControlBlocks, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInLambdaExpressionBody, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInMethods, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInProperties, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInTypes, true);
-                options = options.WithChangedOption(FormattingOptions.SmartIndent, "C#", FormattingOptions.IndentStyle.Smart);
-                //options = options.WithChangedOption(FormattingOptions.NewLine, "C#",  "\r\n\r\n");
-                options = options.WithChangedOption(FormattingOptions.UseTabs, LanguageNames.CSharp, true);
-
-                options = options.WithChangedOption(CSharpFormattingOptions.LabelPositioning, LabelPositionOptions.LeftMost);
-                options = options.WithChangedOption(CSharpFormattingOptions.SpaceWithinOtherParentheses, false);
-
-                options = options.WithChangedOption(CSharpFormattingOptions.IndentBlock, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.IndentBraces, false);
-                options = options.WithChangedOption(CSharpFormattingOptions.IndentSwitchCaseSection, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.IndentSwitchCaseSectionWhenBlock, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.IndentSwitchSection, true);
-
-                options = options.WithChangedOption(CSharpFormattingOptions.SpaceAfterComma, true);
-                options = options.WithChangedOption(CSharpFormattingOptions.SpaceBeforeComma, false);
-                options = options.WithChangedOption(CSharpFormattingOptions.SpaceAfterMethodCallName, false);
-
-                options = options.WithChangedOption(CSharpFormattingOptions.WrappingPreserveSingleLine, false);
-                options = options.WithChangedOption(CSharpFormattingOptions.WrappingKeepStatementsOnSingleLine, false);
-
-                options = options.WithChangedOption(CSharpFormattingOptions.SpacingAroundBinaryOperator,
-                    BinaryOperatorSpacingOptions.Remove);
-
-                workspace.Options = options;
-                var solutionInfo = SolutionInfo.Create(SolutionId.CreateNewId(), VersionStamp.Default);
-                var solution = workspace.AddSolution(solutionInfo);
-
-                var projectInfo = ProjectInfo.Create(ProjectId.CreateNewId(), VersionStamp.Default, "TempProject",
-                    "TempProject", "C#");
-                workspace.AddProject(projectInfo);
-                var docInfo = DocumentInfo.Create(
-                    DocumentId.CreateNewId(projectInfo.Id),
-                    "temp2.cs",
-                    //filePath: item,
-                    isGenerated: true,
-                    loader: TextLoader.From(TextAndVersion.Create(SourceText.From(
-                        code
-                    ), VersionStamp.Default)));
-                var document = workspace.AddDocument(docInfo);
-                document.Project.Solution.Workspace.Options = options;
-                //workspace.LoadMetadataForReferencedProjects = true;
-                //var project = workspace.CurrentSolution.AddProject("TempProject", "TempProject", "C#");
-                //workspace.CurrentSolution.Projects.First();
-                //var readAllText = File.ReadAllText(item);
-                //var document = project.AddDocument("temp2.cs", SourceText.From(readAllText));
-                //var project = workspace.CurrentSolution.Projects.First();
-                //compilationUnit = Formatter.Format(
-                //    compilationUnit, Formatter.Annotation, workspace);
-                document = Formatter.FormatAsync(document, options).GetAwaiter().GetResult();
-                //await engine.FormatSolutionAsync(project.Solution, cancellationToken);
-                //var newDoc = project.Documents.First();
-                //foreach (var doc in workspace.CurrentSolution.Projects.First().Documents)
-                //{
-
-                //}
-                //var root = await document.GetSyntaxRootAsync(cancellationToken);
-                //code = root.ToFullString();
-                var newRoot = document.GetSyntaxRootAsync().GetAwaiter().GetResult();
-                //newRoot = new KeywordRewriter().Visit(newRoot);
-                code = newRoot
-                        .NormalizeWhitespace()
-                        .ToFullString()
-                    //.Replace(NewLineComment, "\r\n")
-                    ;
-                //Console.WriteLine(code);
-            }
-            return code;
-        }
-        //var formatted = Formatter.FormatAsync(root, adhocWorkspace, options);
-        //return formatted
-        //          //.NormalizeWhitespace2("    ", eol:"\n")
-        //          .ToFullString();        }
 
         private static IEnumerable<StatementSyntax> GetOrderedObjectStatements(
-        CSharpObjectSerializerInstanceArguments args)
+            CSharpObjectSerializerInstanceArguments args)
         {
             var sorted = args.ObjectStatements.Keys.TopologicalSort(
-                @object => args.InitialiserDependencies.ContainsKey(@object)
-                    ? args.InitialiserDependencies[@object]
-                    : new List<object>())
+                    @object => args.InitialiserDependencies.ContainsKey(@object)
+                        ? args.InitialiserDependencies[@object]
+                        : new List<object>())
                 .ToList();
             var statementSyntaxes = args.ObjectStatements
                 .OrderBy(x => sorted.IndexOf(x.Key))
@@ -422,6 +280,7 @@ namespace Brandless.ObjectSerializer
                         .Union(args.LateCircularStatements)
                     ;
             }
+
             return statementSyntaxes;
         }
 
@@ -439,12 +298,13 @@ namespace Brandless.ObjectSerializer
                     false);
                 if (serializeObjectToInitialiser != null)
                 {
-                    args.ThisStatements.Add(SyntaxFactory.ExpressionStatement(
-                        SyntaxFactory.BinaryExpression(
-                            SyntaxKind.SimpleAssignmentExpression,
-                            SyntaxFactory.IdentifierName(
-                                property.Name),
-                            serializeObjectToInitialiser)));
+                    args.ThisStatements.Add(
+                        SyntaxFactory.ExpressionStatement(
+                            SyntaxFactory.BinaryExpression(
+                                SyntaxKind.SimpleAssignmentExpression,
+                                SyntaxFactory.IdentifierName(
+                                    property.Name),
+                                serializeObjectToInitialiser)));
                 }
             }
         }
@@ -468,61 +328,80 @@ namespace Brandless.ObjectSerializer
                         {
                             SyntaxFactory.Comment(
                                 ToComment(description)),
-                            SyntaxFactory.LineFeed,
+                            SyntaxFactory.LineFeed
                         };
                 var objectStatements =
                     isCircular
-                        ?
-                        (@object is IEnumerable ? args.LateCircularObjectStatements : args.EndObjectStatements)
+                        ? (@object is IEnumerable ? args.LateCircularObjectStatements : args.EndObjectStatements)
                         : args.ObjectStatements;
-                var initialiser = SerializeObjectToInitialiser(args,
+                var initialiser = SerializeObjectToInitialiser(
+                    args,
                     @object,
                     true,
                     null,
                     null,
                     false);
-                if (Parameters.InstanceOnly)
+                if (!string.IsNullOrWhiteSpace(Parameters.BeforeInitialiserComment))
                 {
-                    InitialiserCode = initialiser.NormalizeWhitespace().ToString();
+                    initialiser = initialiser.WithLeadingTrivia(SyntaxFactory.Comment(ToInlineComment(Parameters.BeforeInitialiserComment)));
                 }
-                else
+                if (!string.IsNullOrWhiteSpace(Parameters.AfterInitialiserComment))
                 {
-                    objectStatements.Add(
-                        @object,
-                        SyntaxFactory.LocalDeclarationStatement(
-                            SyntaxFactory.VariableDeclaration(
-                                    SyntaxFactory.IdentifierName(
-                                        SyntaxFactory.Identifier(
-                                            SyntaxFactory.TriviaList(
-                                                syntaxTrivias),
-                                            @"var",
-                                            SyntaxFactory.TriviaList(
-                                                SyntaxFactory.Space)).NormalizeWhitespace())).NormalizeWhitespace2()
-                                .WithVariables(
-                                    SyntaxFactory.SingletonSeparatedList(
-                                        SyntaxFactory.VariableDeclarator(
-                                                SyntaxFactory.Identifier(
-                                                    instanceName)).NormalizeWhitespace2()
-                                            .WithInitializer(
-                                                SyntaxFactory.EqualsValueClause(
-                                                    initialiser
-                                                ))))).NormalizeWhitespace()
-                    );
+                    initialiser = initialiser.WithTrailingTrivia(SyntaxFactory.Comment(ToInlineComment(Parameters.AfterInitialiserComment)));
                 }
+                initialiser = initialiser.NormalizeWhitespace();
+                Output.InitialiserSyntax = initialiser;
+                Output.Initialiser = initialiser.ToString();
+                var inst = SyntaxFactory.LocalDeclarationStatement(
+                        SyntaxFactory.VariableDeclaration(
+                                SyntaxFactory.IdentifierName(
+                                    SyntaxFactory.Identifier(
+                                        SyntaxFactory.TriviaList(
+                                            syntaxTrivias),
+                                        @"var",
+                                        SyntaxFactory.TriviaList(
+                                            SyntaxFactory.Space)).NormalizeWhitespace())).NormalizeWhitespace2()
+                            .WithVariables(
+                                SyntaxFactory.SingletonSeparatedList(
+                                    SyntaxFactory.VariableDeclarator(
+                                            SyntaxFactory.Identifier(
+                                                instanceName)).NormalizeWhitespace2()
+                                        .WithInitializer(
+                                            SyntaxFactory.EqualsValueClause(
+                                                initialiser
+                                            )))))
+                    ;
+                var instance = inst.NormalizeWhitespace();
+                objectStatements.Add(
+                    @object,
+                    instance
+                );
+                Output.Instance = instance.ToFullString();
+                Output.InstanceSyntax = instance;
             }
         }
 
-        public string InitialiserCode { get; set; }
-
         private static string ToComment(string description)
         {
-            return string.Format(@"// {0}",
+            return string.Format(
+                @"// {0}",
+                description);
+        }
+
+        private static string ToInlineComment(string description)
+        {
+            return string.Format(
+                @"/* {0} */",
                 description);
         }
 
         private static void AddNamespace(CSharpObjectSerializerInstanceArguments args, object @object)
         {
-            if (@object == null) return;
+            if (@object == null)
+            {
+                return;
+            }
+
             var @namespace = @object.GetType()
                 .Namespace;
             if (!string.IsNullOrWhiteSpace(@namespace) && !args.Namespaces.Contains(@namespace))
@@ -534,26 +413,32 @@ namespace Brandless.ObjectSerializer
         private IEnumerable<SyntaxNodeOrToken> SerializeEnumerableElements(
             CSharpObjectSerializerInstanceArguments args,
             IEnumerable elms
-            )
+        )
         {
             var nodes = new List<SyntaxNodeOrToken>();
             foreach (var elm in elms)
             {
-                nodes.Add(SerializeObjectToInitialiser(args,
-                    elm,
-                    false,
-                    null,
-                    null,
-                    true));
+                nodes.Add(
+                    SerializeObjectToInitialiser(
+                        args,
+                        elm,
+                        false,
+                        null,
+                        null,
+                        true));
                 nodes.Add(CommaWithNewLine());
             }
+
             RemoveTrailingComma(nodes);
             return nodes.ToArray();
         }
 
         private static void RemoveTrailingComma(IList nodes)
         {
-            if (nodes.Count > 0) nodes.RemoveAt(nodes.Count - 1);
+            if (nodes.Count > 0)
+            {
+                nodes.RemoveAt(nodes.Count - 1);
+            }
         }
 
         private ExpressionSyntax SerializeObjectToInitialiser(
@@ -566,9 +451,11 @@ namespace Brandless.ObjectSerializer
         {
             foreach (var stackObject in args.DependencyStack)
             {
-                args.RegisterDependencies(stackObject,
+                args.RegisterDependencies(
+                    stackObject,
                     @object);
             }
+
             args.DependencyStack.Push(@object);
             var syntax = SerializeObjectToInitialiserInner(
                 args,
@@ -577,7 +464,7 @@ namespace Brandless.ObjectSerializer
                 propertyBeingAssigned,
                 propertyOwner,
                 serializeNulls
-                );
+            );
             args.DependencyStack.Pop();
             return syntax;
         }
@@ -590,14 +477,16 @@ namespace Brandless.ObjectSerializer
             object propertyOwner,
             bool serializeNulls)
         {
-            AddNamespace(args,
+            AddNamespace(
+                args,
                 @object);
             if (@object == null)
             {
                 return serializeNulls ||
-                        // If the default is NOT null, then we MUST serialize the null value
-                        !IsSameAsDefaultValueAfterInitialise(propertyBeingAssigned,
-                            @object)
+                       // If the default is NOT null, then we MUST serialize the null value
+                       !IsSameAsDefaultValueAfterInitialise(
+                           propertyBeingAssigned,
+                           @object)
                     ? SyntaxFactory.LiteralExpression(
                         SyntaxKind.NullLiteralExpression)
                     : null;
@@ -612,6 +501,7 @@ namespace Brandless.ObjectSerializer
             {
                 return syntaxFactoryLiteralExpression;
             }
+
             var type = @object.GetType();
             var enumerable = @object as IEnumerable;
             // We're serializing an object
@@ -624,19 +514,16 @@ namespace Brandless.ObjectSerializer
             else
             {
                 isCircular = dependencyResult != null &&
-                    dependencyResult.HasTopLevelCircular();
+                             dependencyResult.HasTopLevelCircular();
             }
+
             var multipleUsages = args.Dependencies.IsDependedUponMultipleTimes(@object);
             if (
-                (
-                    allowClasses ||
-                    (
-                        !isCircular &&
-                        !multipleUsages
-                        )
-                    )
-                //|| @object is IEnumerable
-                )
+                allowClasses ||
+                !isCircular &&
+                !multipleUsages
+            //|| @object is IEnumerable
+            )
             {
                 if (enumerable == null)
                 {
@@ -662,7 +549,8 @@ namespace Brandless.ObjectSerializer
                             .WithInitializer(
                                 SyntaxFactory.InitializerExpression(
                                     SyntaxKind.ObjectInitializerExpression,
-                                    SerializeProperties(args,
+                                    SerializeProperties(
+                                        args,
                                         @object)))
                         // new X()
                         : objectCreationExpressionSyntax.WithArgumentList(SyntaxFactory.ArgumentList());
@@ -685,7 +573,7 @@ namespace Brandless.ObjectSerializer
                     GetFullTypeSyntax(type),
                     null,
                     null
-                    );
+                );
                 return enumerable.Cast<object>().Any()
                     // new X { Y, Z }
                     ? objectCreationExpression
@@ -694,36 +582,46 @@ namespace Brandless.ObjectSerializer
                                 SyntaxKind.CollectionInitializerExpression,
                                 SyntaxFactory.SeparatedList<ExpressionSyntax>(
                                     // Serialize the properties to an initialiser
-                                    SerializeEnumerableElements(args,
+                                    SerializeEnumerableElements(
+                                        args,
                                         enumerable))))
                     // new X()
                     : objectCreationExpression.WithArgumentList(SyntaxFactory.ArgumentList());
             }
+
             // Serialize to a separate object instance out of the
             // scope of the initialiser
             if (args.GetObjectData(@object)
                 .HasBeenSerialized)
             {
                 if (!isCircular || propertyBeingAssigned == null)
-                    return GetObjectReferenceSyntax(args,
+                {
+                    return GetObjectReferenceSyntax(
+                        args,
                         @object);
+                }
+
                 // Queue up a property assignment later on
-                SerializePropertyToPostParentInitialiseAssignment(args,
+                SerializePropertyToPostParentInitialiseAssignment(
+                    args,
                     propertyOwner,
                     propertyBeingAssigned,
                     false);
                 return null;
             }
+
             // Serialize to local variable
             if (multipleUsages || propertyBeingAssigned == null || true)
             {
-                var instanceName = GetInstanceName(args,
+                var instanceName = GetInstanceName(
+                    args,
                     @object,
                     type);
                 var description =
                     Parameters.DescriptionFormatter != null &&
                     Parameters.DescriptionFormatter.Enabled
-                        ? Parameters.DescriptionFormatter.FormatOrNull(new DescriptionFormatterArguments(),
+                        ? Parameters.DescriptionFormatter.FormatOrNull(
+                            new DescriptionFormatterArguments(),
                             type,
                             @object)
                         : null;
@@ -742,11 +640,12 @@ namespace Brandless.ObjectSerializer
                         SyntaxFactory.Comment(
                             ToComment(description)));
                 }
+
                 var serializeObjectToInitialiser = SyntaxFactory.Identifier(
                     leadingTrivia,
                     instanceName,
                     SyntaxFactory.TriviaList()
-                    );
+                );
                 return SyntaxFactory.IdentifierName(serializeObjectToInitialiser);
             }
 
@@ -756,11 +655,13 @@ namespace Brandless.ObjectSerializer
             if (!args.GetObjectData(@object)
                 .HasBeenSerialized)
             {
-                SerializePropertyToPostParentInitialiseAssignment(args,
+                SerializePropertyToPostParentInitialiseAssignment(
+                    args,
                     propertyOwner,
                     propertyBeingAssigned,
                     true);
             }
+
             return null;
             //	}
         }
@@ -774,7 +675,9 @@ namespace Brandless.ObjectSerializer
                 args.GetObjectData(@object)
                     .HasBeenSerialized = true;
                 {
-                    syntaxFactoryLiteralExpression = Constructor(args, type,
+                    syntaxFactoryLiteralExpression = Constructor(
+                        args,
+                        type,
                         ((DateTime)@object).Ticks);
                     return true;
                 }
@@ -785,8 +688,11 @@ namespace Brandless.ObjectSerializer
                 args.GetObjectData(@object)
                     .HasBeenSerialized = true;
                 {
-                    syntaxFactoryLiteralExpression = Constructor(args, type,
-                        ((DateTimeOffset)@object).Ticks, TimeSpan.Zero
+                    syntaxFactoryLiteralExpression = Constructor(
+                        args,
+                        type,
+                        ((DateTimeOffset)@object).Ticks,
+                        TimeSpan.Zero
                     );
                     return true;
                 }
@@ -807,16 +713,16 @@ namespace Brandless.ObjectSerializer
                         ;
                     return true;
                 }
-                else
+
+                args.GetObjectData(@object)
+                    .HasBeenSerialized = true;
                 {
-                    args.GetObjectData(@object)
-                        .HasBeenSerialized = true;
-                    {
-                        syntaxFactoryLiteralExpression = Constructor(args, type,
-                            ts.Ticks
-                        );
-                        return true;
-                    }
+                    syntaxFactoryLiteralExpression = Constructor(
+                        args,
+                        type,
+                        ts.Ticks
+                    );
+                    return true;
                 }
             }
 
@@ -825,7 +731,9 @@ namespace Brandless.ObjectSerializer
                 args.GetObjectData(@object)
                     .HasBeenSerialized = true;
                 {
-                    syntaxFactoryLiteralExpression = Constructor(args, type,
+                    syntaxFactoryLiteralExpression = Constructor(
+                        args,
+                        type,
                         @object.ToString());
                     return true;
                 }
@@ -872,24 +780,26 @@ namespace Brandless.ObjectSerializer
                                     false),
                                 SyntaxFactory.Token(
                                     SyntaxKind.CommaToken),
-                                SerializeObjectToInitialiser(args,
+                                SerializeObjectToInitialiser(
+                                    args,
                                     @object.GetPropertyValue("Value"),
                                     false,
                                     null,
                                     null,
-                                    false),
+                                    false)
                             }));
                     return true;
                 }
             }
 
             // Last resort before enumerables or classes
-            if (@object is string || type.IsPrimitive || (!type.IsClass && type.IsValueType))
+            if (@object is string || type.IsPrimitive || !type.IsClass && type.IsValueType)
             {
                 args.GetObjectData(@object)
                     .HasBeenSerialized = true;
                 {
-                    syntaxFactoryLiteralExpression = SyntaxFactoryLiteralExpression(@object,
+                    syntaxFactoryLiteralExpression = SyntaxFactoryLiteralExpression(
+                        @object,
                         type);
                     return true;
                 }
@@ -914,16 +824,16 @@ namespace Brandless.ObjectSerializer
                                     ? SyntaxKind.ArrayInitializerExpression
                                     : SyntaxKind.CollectionInitializerExpression,
                                 SyntaxFactory.SeparatedList<ExpressionSyntax>(
-                                    SerializeEnumerableElements(args,
+                                    SerializeEnumerableElements(
+                                        args,
                                         @object as IEnumerable)))).NormalizeWhitespace();
                     return true;
                 }
             }
+
             syntaxFactoryLiteralExpression = null;
             return false;
         }
-
-        public Type ReturnType { get; set; }
 
         private static ExpressionSyntax SyntaxFactoryLiteralExpression(object @object, Type type)
         {
@@ -933,21 +843,26 @@ namespace Brandless.ObjectSerializer
                     SyntaxKind.NumericLiteralExpression,
                     SyntaxFactoryLiteral(
                         @object
-                        )
-                    );
+                    )
+                );
             }
-            if (Equals(@object,
+
+            if (Equals(
+                @object,
                 false))
             {
                 return SyntaxFactory.LiteralExpression(
                     SyntaxKind.FalseLiteralExpression);
             }
-            if (Equals(@object,
+
+            if (Equals(
+                @object,
                 true))
             {
                 return SyntaxFactory.LiteralExpression(
                     SyntaxKind.TrueLiteralExpression);
             }
+
             if (@object is char)
             {
                 return SyntaxFactory.LiteralExpression(
@@ -957,12 +872,13 @@ namespace Brandless.ObjectSerializer
                     )
                 );
             }
+
             return SyntaxFactory.LiteralExpression(
                 SyntaxKind.StringLiteralExpression,
                 SyntaxFactoryLiteral(
                     @object
-                    )
-                );
+                )
+            );
         }
 
         private ObjectCreationExpressionSyntax Constructor(
@@ -980,20 +896,17 @@ namespace Brandless.ObjectSerializer
                         SyntaxFactoryLiteral(value)
                     );
                 }
+
                 arguments.Add(SyntaxFactory.Argument(syntax));
             }
+
             return SyntaxFactory.ObjectCreationExpression(
-                GetFullTypeSyntax(type))
+                    GetFullTypeSyntax(type))
                 .NormalizeWhitespace2()
                 .WithArgumentList(
                     SyntaxFactory.ArgumentList(
                         SyntaxFactory.SeparatedList(arguments)
-                        //SyntaxFactory.SingletonSeparatedList(
-                        //    SyntaxFactory.Argument(
-                        //        syntax
-                        //        )
-                        //    )
-                        )
+                    )
                 );
         }
 
@@ -1004,18 +917,19 @@ namespace Brandless.ObjectSerializer
             if (genericArguments.Length > 0)
             {
                 nameForIntialiser = SyntaxFactory.GenericName(
-                    SyntaxFactory.Identifier(
-                        UnwrapGenericName(type)))
+                        SyntaxFactory.Identifier(
+                            UnwrapGenericName(type)))
                     .WithTypeArgumentList(
                         SyntaxFactory.TypeArgumentList(
                             SyntaxFactory.SeparatedList(
                                 genericArguments.Select(GetFullTypeSyntax)
-                                )));
+                            )));
             }
             else
             {
                 nameForIntialiser = SyntaxFactory.IdentifierName(type.Name);
             }
+
             return nameForIntialiser.NormalizeWhitespace();
         }
 
@@ -1025,7 +939,8 @@ namespace Brandless.ObjectSerializer
         {
             foreach (var property in GetSerializableProperties(@object, false))
             {
-                SerializePropertyToPostParentInitialiseAssignment(args,
+                SerializePropertyToPostParentInitialiseAssignment(
+                    args,
                     @object,
                     property,
                     false);
@@ -1035,14 +950,20 @@ namespace Brandless.ObjectSerializer
         private IEnumerable<PropertyInfo> GetSerializableProperties(object @object, bool serializeNulls)
         {
             var serializableProperties = DependencyAnalyser.GetSerializableProperties(@object)
-                .Where(p => !Parameters.IgnoreConditions.Any(ic => ic.Ignore(@object,
-                    p)));
+                .Where(
+                    p => !Parameters.IgnoreConditions.Any(
+                        ic => ic.Ignore(
+                            @object,
+                            p)));
             if (!serializeNulls)
             {
                 serializableProperties = serializableProperties
-                    .Where(p => !Equals(p.GetValue(@object),
-                        null));
+                    .Where(
+                        p => !Equals(
+                            p.GetValue(@object),
+                            null));
             }
+
             return serializableProperties
                 ;
         }
@@ -1057,11 +978,13 @@ namespace Brandless.ObjectSerializer
             {
                 suggestedNameBuilder.Append(UnwrapGenericName(genericTypeArgument));
             }
+
             var suggestedName = suggestedNameBuilder.ToString();
             if (Parameters.InstanceNameFormatter != null &&
                 Parameters.InstanceNameFormatter.Enabled &&
                 Parameters.InstanceNameFormatter.TryFormat(
-                    new InstanceNameFormatterArguments(args.InstanceNames,
+                    new InstanceNameFormatterArguments(
+                        args.InstanceNames,
                         suggestedName),
                     type,
                     @object,
@@ -1070,12 +993,14 @@ namespace Brandless.ObjectSerializer
                 switch (Parameters.InstanceNameFormatter.SuggestedNameLocation)
                 {
                     case InstanceNameFormatterSuggestedNameLocation.Prefix:
-                        name = string.Format("{0}{1}",
+                        name = string.Format(
+                            "{0}{1}",
                             suggestedName,
                             name);
                         break;
                     case InstanceNameFormatterSuggestedNameLocation.Suffix:
-                        name = string.Format("{0}{1}",
+                        name = string.Format(
+                            "{0}{1}",
                             name,
                             suggestedName);
                         break;
@@ -1085,27 +1010,32 @@ namespace Brandless.ObjectSerializer
             {
                 name = suggestedName;
             }
+
             // Suffix with a number if we already have one of these
             if (!args.InstanceNameCount.ContainsKey(name))
             {
-                args.InstanceNameCount.Add(name,
+                args.InstanceNameCount.Add(
+                    name,
                     0);
             }
+
             Func<string> getName = () =>
             {
                 args.InstanceNameCount[name] = args.InstanceNameCount[name] + 1;
-                return string.Format("{0}{1}",
+                return string.Format(
+                    "{0}{1}",
                     name.FirstLetterToLowerInvariant(),
                     args.InstanceNameCount[name] == 1
                         ? string.Empty
                         : args.InstanceNameCount[name].ToString()
-                    );
+                );
             };
             var newName = getName();
             while (args.InstanceNames.Contains(newName))
             {
                 newName = getName();
             }
+
             args.InstanceNames.Add(newName);
             return newName;
         }
@@ -1122,54 +1052,64 @@ namespace Brandless.ObjectSerializer
         {
             var resolveSyntaxKindFromType = ResolveSyntaxKindFromType(type);
             if (resolveSyntaxKindFromType != null)
+            {
                 return SyntaxFactory.PredefinedType(
                     SyntaxFactory.Token(
                         resolveSyntaxKindFromType.Value));
+            }
+
             return SyntaxFactory.IdentifierName(type.Name);
         }
 
-        //private static Type GetElementType(Type type)
-        //{
-        //	if (type.HasElementType) return type.GetElementType();
-        //	var types =
-        //		(from method in type.GetMethods()
-        //		 where method.Name == "get_Item"
-        //		 select method.ReturnType
-        //		).Distinct().ToArray();
-        //	if (types.Length == 0)
-        //		return null;
-        //	if (types.Length != 1)
-        //		throw new Exception(string.Format("{0} has multiple item types", type.FullName));
-        //	return types[0];
-        //}
-
         private static SyntaxKind? ResolveSyntaxKindFromType(Type type)
         {
-            var name = string.Format("{0}Keyword",
+            var name = string.Format(
+                "{0}Keyword",
                 type.Name);
             var enumMatchedName = Enum.GetNames(typeof(SyntaxKind))
-                .SingleOrDefault(n => n.Equals(name,
-                    StringComparison.OrdinalIgnoreCase));
-            if (enumMatchedName == null) return null;
-            return (SyntaxKind)Enum.Parse(typeof(SyntaxKind),
+                .SingleOrDefault(
+                    n => n.Equals(
+                        name,
+                        StringComparison.OrdinalIgnoreCase));
+            if (enumMatchedName == null)
+            {
+                return null;
+            }
+
+            return (SyntaxKind)Enum.Parse(
+                typeof(SyntaxKind),
                 enumMatchedName);
         }
 
         private static SyntaxToken SyntaxFactoryLiteral(object @object)
         {
             var type = @object.GetType();
-            if (type == typeof(byte)) type = typeof(int);
+            if (type == typeof(byte))
+            {
+                type = typeof(int);
+            }
+
             var method =
                 typeof(SyntaxFactory).GetMethods(BindingFlags.Static | BindingFlags.Public)
-                    .Single(m =>
-                    {
-                        if (m.Name != "Literal") return false;
-                        var p = m.GetParameters();
-                        if (p.Count() != 1) return false;
-                        return p.Single()
-                            .ParameterType == type;
-                    });
-            return (SyntaxToken)method.Invoke(null,
+                    .Single(
+                        m =>
+                        {
+                            if (m.Name != "Literal")
+                            {
+                                return false;
+                            }
+
+                            var p = m.GetParameters();
+                            if (p.Count() != 1)
+                            {
+                                return false;
+                            }
+
+                            return p.Single()
+                                       .ParameterType == type;
+                        });
+            return (SyntaxToken)method.Invoke(
+                null,
                 new[] { @object });
         }
 
@@ -1190,25 +1130,29 @@ namespace Brandless.ObjectSerializer
                 else
                 {
                     isCircular =
-                        (!(Parameters is CSharpSerializeToClassParameters) || value != args.Object)
+                        value == args.Object
                         //&& !(value is IEnumerable)
                         && dependencyResult != null
                         && dependencyResult.HasTopLevelCircular()
                         ;
                 }
+
                 var valueToAssignReferenceSyntax =
-                    SerializeAndOrGetObjectReferenceSyntax(args,
+                    SerializeAndOrGetObjectReferenceSyntax(
+                        args,
                         value,
                         property,
                         @object,
                         false);
                 if (valueToAssignReferenceSyntax != null)
                 {
-                    if (isCircular && CanAssignPropertiesTo(args,
-                        @object))  // && !(valueToAssignReferenceSyntax is IdentifierNameSyntax))
+                    if (isCircular && CanAssignPropertiesTo(
+                            args,
+                            @object)) // && !(valueToAssignReferenceSyntax is IdentifierNameSyntax))
                     {
                         // Assign this property later
-                        SerializePropertyToPostParentInitialiseAssignment(args,
+                        SerializePropertyToPostParentInitialiseAssignment(
+                            args,
                             @object,
                             property,
                             valueToAssignReferenceSyntax);
@@ -1221,12 +1165,13 @@ namespace Brandless.ObjectSerializer
                                 SyntaxFactory.IdentifierName(
                                     property.Name),
                                 valueToAssignReferenceSyntax
-                                )
-                            );
+                            )
+                        );
                         elms.Add(CommaWithNewLine());
                     }
                 }
             }
+
             // Remove trailing comma
             RemoveTrailingComma(elms);
             return SyntaxFactory.SeparatedList<ExpressionSyntax>(
@@ -1242,12 +1187,13 @@ namespace Brandless.ObjectSerializer
         {
             ExpressionSyntax valueToAssignReferenceSyntax;
             if (value != null && DependencyAnalyser.IsDependableObject(value) && args.GetObjectData(value)
-                .HasBeenSerialized)
+                    .HasBeenSerialized)
             {
                 // This object needs to be initialised after
                 // the object it references
                 //args.RegisterDependencies(@object, value);
-                valueToAssignReferenceSyntax = GetObjectReferenceSyntax(args,
+                valueToAssignReferenceSyntax = GetObjectReferenceSyntax(
+                    args,
                     value);
             }
             else
@@ -1259,8 +1205,9 @@ namespace Brandless.ObjectSerializer
                     propertyBeingAssigned,
                     propertyOwner,
                     false
-                    );
+                );
             }
+
             return valueToAssignReferenceSyntax;
         }
 
@@ -1269,16 +1216,22 @@ namespace Brandless.ObjectSerializer
             object propertyOwner,
             PropertyInfo property,
             bool allowNestedClasses
-            )
+        )
         {
             var value = property.GetValue(propertyOwner);
-            if (IsSameAsDefaultValueAfterInitialise(property,
+            if (IsSameAsDefaultValueAfterInitialise(
+                property,
                 value))
+            {
                 return;
-            SerializePropertyToPostParentInitialiseAssignment(args,
+            }
+
+            SerializePropertyToPostParentInitialiseAssignment(
+                args,
                 propertyOwner,
                 property,
-                SerializeAndOrGetObjectReferenceSyntax(args,
+                SerializeAndOrGetObjectReferenceSyntax(
+                    args,
                     value,
                     property,
                     propertyOwner,
@@ -1291,6 +1244,7 @@ namespace Brandless.ObjectSerializer
             {
                 return property.GetValue(instance) == value;
             }
+
             return false;
         }
 
@@ -1327,30 +1281,37 @@ namespace Brandless.ObjectSerializer
             var identifierNameSyntax = SyntaxFactory.IdentifierName(
                 property.Name);
 
-            if (!CanAssignPropertiesTo(args,
+            if (!CanAssignPropertiesTo(
+                args,
                 propertyOwner))
             {
-                throw new InvalidOperationException("\"this\" setting is not allowed on given instance of object of type \"{0}\""
-                    .FormatText(propertyOwner.GetType()));
+                throw new InvalidOperationException(
+                    "\"this\" setting is not allowed on given instance of object of type \"{0}\""
+                        .FormatText(propertyOwner.GetType()));
             }
+
             return SyntaxFactory.MemberAccessExpression(
                 SyntaxKind.SimpleMemberAccessExpression,
-                GetObjectReferenceSyntax(args,
+                GetObjectReferenceSyntax(
+                    args,
                     propertyOwner),
                 identifierNameSyntax);
         }
 
         private bool CanAssignPropertiesTo(CSharpObjectSerializerInstanceArguments args, object propertyOwner)
         {
-            if (string.IsNullOrWhiteSpace(args.GetObjectData(propertyOwner)
-                .Identifier) && AllowThisObject != propertyOwner)
+            if (string.IsNullOrWhiteSpace(
+                    args.GetObjectData(propertyOwner)
+                        .Identifier) && AllowThisObject != propertyOwner)
             {
                 return false;
             }
+
             return true;
         }
 
-        private static ExpressionSyntax GetObjectReferenceSyntax(CSharpObjectSerializerInstanceArguments args, object value)
+        private static ExpressionSyntax GetObjectReferenceSyntax(CSharpObjectSerializerInstanceArguments args,
+            object value)
         {
             var name = args.GetObjectData(value)
                 .Identifier;
@@ -1378,18 +1339,20 @@ namespace Brandless.ObjectSerializer
                 SyntaxFactory.TriviaList(),
                 SyntaxKind.CommaToken,
                 SyntaxFactory.TriviaList(SyntaxFactory.LineFeed)
-                    //SyntaxFactory.TriviaList(SyntaxFactory.Comment(NewLineComment))
-                    );
+            //SyntaxFactory.TriviaList(SyntaxFactory.Comment(NewLineComment))
+            );
         }
 
         private class TriviaRemover : CSharpSyntaxRewriter
         {
-            private Dictionary<SyntaxNode, IList<UsingDirectiveSyntax>> _usings
+            private readonly Dictionary<SyntaxNode, IList<UsingDirectiveSyntax>> _usings
                 = new Dictionary<SyntaxNode, IList<UsingDirectiveSyntax>>();
-            private Dictionary<SyntaxNode, int> _usingsIndex
+
+            private readonly Dictionary<SyntaxNode, int> _usingsIndex
                 = new Dictionary<SyntaxNode, int>();
+
             /// <summary>
-            /// Sorts the using statments alphabetically
+            ///     Sorts the using statments alphabetically
             /// </summary>
             /// <param name="node"></param>
             /// <returns></returns>
@@ -1398,15 +1361,18 @@ namespace Brandless.ObjectSerializer
                 if (!_usings.ContainsKey(node.Parent))
                 {
                     var usings = node.Parent.ChildNodes().OfType<UsingDirectiveSyntax>()
-                        .ToList()
+                            .ToList()
                         ;
-                    _usingsIndex.Add(node.Parent,
+                    _usingsIndex.Add(
+                        node.Parent,
                         0);
-                    _usings.Add(node.Parent,
+                    _usings.Add(
+                        node.Parent,
                         usings
                             .OrderBy(c => c.Name.ToString())
                             .ToList());
                 }
+
                 var syntax = _usings[node.Parent][_usingsIndex[node.Parent]];
                 _usingsIndex[node.Parent] = _usingsIndex[node.Parent] + 1;
                 return syntax;
@@ -1418,103 +1384,6 @@ namespace Brandless.ObjectSerializer
                 token = token.WithTrailingTrivia(SyntaxFactory.TriviaList());
                 return base.VisitToken(token);
             }
-        }
-    }
-
-    class KeywordRewriter : CSharpSyntaxRewriter
-    {
-        public override SyntaxToken VisitToken(SyntaxToken token)
-        {
-            if (token.IsKind(SyntaxKind.CloseBraceToken))
-            {
-                return SyntaxFactory.Token(
-                    token.LeadingTrivia.Add(SyntaxFactory.LineFeed),
-                    SyntaxKind.CloseBraceToken, "}", "}",
-                    token.TrailingTrivia.Add(SyntaxFactory.LineFeed)
-                    );
-            }
-            if (token.IsKind(SyntaxKind.OpenBraceToken))
-            {
-                return SyntaxFactory.Token(
-                    token.LeadingTrivia.Add(SyntaxFactory.LineFeed),
-                    SyntaxKind.OpenBraceToken, "{", "{",
-                    token.TrailingTrivia.Add(SyntaxFactory.LineFeed)
-                    );
-            }
-            if (token.IsKind(SyntaxKind.CommaToken))
-            {
-                return SyntaxFactory.Token(
-                    token.LeadingTrivia,
-                    SyntaxKind.CommaToken, ",", ",",
-                    token.TrailingTrivia.Add(SyntaxFactory.LineFeed)
-                    );
-            }
-
-            return token;
-        }
-    }
-
-    class WhiteSpaceRewriter : CSharpSyntaxRewriter
-    {
-        public override SyntaxTrivia VisitTrivia(SyntaxTrivia trivia)
-        {
-            var kind = trivia.Kind();
-            if (trivia.IsKind(SyntaxKind.EndOfLineTrivia))
-            {
-                return SyntaxFactory.SyntaxTrivia(
-                    trivia.Kind(),
-                    "NEWLINE"
-                );
-            }
-            return base.VisitTrivia(trivia);
-        }
-
-        public override SyntaxToken VisitToken(SyntaxToken token)
-        {
-            if (token.IsKind(SyntaxKind.CommaToken) ||
-                token.IsKind(SyntaxKind.GreaterThanToken) ||
-                token.IsKind(SyntaxKind.LessThanToken))
-            {
-                SyntaxTriviaList trailingTrivia =
-                    SyntaxFactory.TriviaList(SyntaxFactory.LineFeed);
-                var addNewLine = true;
-                if (token.IsKind(SyntaxKind.GreaterThanToken))
-                {
-                    var parent = token.Parent;
-                    while (parent != null)
-                    {
-                        if (parent is BlockSyntax)
-                        {
-                            break;
-                        }
-                        if (parent is MethodDeclarationSyntax)
-                        {
-                            addNewLine = false;
-                            break;
-                        }
-                        parent = parent.Parent;
-                    }
-                    if (!addNewLine)
-                    {
-                        trailingTrivia = SyntaxFactory.TriviaList(
-                            SyntaxFactory.Space);
-                    }
-                }
-                else if (token.IsKind(SyntaxKind.LessThanToken))
-                {
-                    addNewLine = false;
-                    trailingTrivia =
-                        SyntaxTriviaList.Empty;
-                }
-                SyntaxFactory.TriviaList(SyntaxFactory.LineFeed);
-                return SyntaxFactory.Token(
-                    SyntaxFactory.TriviaList(SyntaxFactory.Comment(CSharpObjectSerializer.RemoveSpaceToken)),
-                    token.Kind(),
-                    trailingTrivia
-                );
-            }
-
-            return token;
         }
     }
 }

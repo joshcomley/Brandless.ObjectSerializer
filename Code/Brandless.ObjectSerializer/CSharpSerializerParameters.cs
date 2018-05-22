@@ -5,16 +5,22 @@ using Brandless.ObjectSerializer.Extensions;
 
 namespace Brandless.ObjectSerializer
 {
-	public abstract class CSharpSerializerParameters
+	public class CSharpSerializerParameters
 	{
+	    public string ClassName { get; set; }
+	    public string BaseClassName { get; set; }
+	    public string BeforeInstanceComment { get; set; }
+	    public string BeforeInitialiserComment { get; set; }
+	    public string AfterInstanceComment { get; set; }
+	    public string AfterInitialiserComment { get; set; }
 		public List<IgnoreCondition> IgnoreConditions { get; set; } 
 		private DescriptionFormatter _descriptionFormatter;
 		private InstanceNameFormatter _instanceNameFormatter;
-        public bool InstanceOnly { get; set; }
+        public string BeforeComment { get; set; }
+        public string AfterComment { get; set; }
         public string InstanceName { get; set; }
 	    public bool Beautify { get; set; } = true;
 	    public bool AllowObjectInitializer { get; set; } = true;
-
         public string Namespace { get; set; }
 
 		public DescriptionFormatter DescriptionFormatter
@@ -27,7 +33,7 @@ namespace Brandless.ObjectSerializer
 			get { return _instanceNameFormatter = _instanceNameFormatter ?? new InstanceNameFormatter(); }
 		}
 
-		protected CSharpSerializerParameters(string instanceName)
+		public CSharpSerializerParameters(string instanceName = null)
 		{
 			IgnoreConditions = new List<IgnoreCondition>
 			{
