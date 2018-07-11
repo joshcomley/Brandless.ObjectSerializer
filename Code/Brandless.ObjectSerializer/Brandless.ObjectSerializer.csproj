@@ -1,14 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFrameworks>netcoreapp2.0;netstandard2.0;net46</TargetFrameworks>
     <Configurations>Debug;Release;TypeScript Debug</Configurations>
   </PropertyGroup>
-
+  <Choose>
+    <When Condition="'$(Configuration)' == 'Release'">
+      <ItemGroup>
+        <PackageReference Include="Brandless" Version="0.0.12-0003-0-Release" />
+        <PackageReference Include="TsBeautify" Version="0.0.1-preview00026-0-Release" />
+      </ItemGroup>
+    </When>
+    <When Condition="'$(Configuration)' == 'Debug'">
+      <ItemGroup>
+        <PackageReference Include="Brandless" Version="0.0.12-0003-1-Debug" />
+        <PackageReference Include="TsBeautify" Version="0.0.1-preview00026-1-Debug" />
+      </ItemGroup>
+    </When>
+  </Choose>
   <ItemGroup>
-    <PackageReference Include="Brandless" Version="0.0.7" />
     <PackageReference Include="Microsoft.CodeAnalysis" Version="2.6.1" />
-    <PackageReference Include="TsBeautify" Version="0.0.1-preview00022" />
   </ItemGroup>
-
 </Project>
