@@ -6,13 +6,13 @@
     <When Condition="'$(Configuration)' == 'Release'">
       <ItemGroup>
         <PackageReference Include="Brandless" Version="0.0.12-0003-0-Release" />
-        <PackageReference Include="TsBeautify" Version="0.0.1-preview00026-0-Release" />
+        <PackageReference Include="TsBeautify" Version="0.0.1-preview00029-0-Release" />
       </ItemGroup>
     </When>
     <When Condition="'$(Configuration)' == 'Debug'">
       <ItemGroup>
         <PackageReference Include="Brandless" Version="0.0.12-0003-1-Debug" />
-        <PackageReference Include="TsBeautify" Version="0.0.1-preview00026-1-Debug" />
+        <PackageReference Include="TsBeautify" Version="0.0.1-preview00029-1-Debug" />
       </ItemGroup>
     </When>
   </Choose>

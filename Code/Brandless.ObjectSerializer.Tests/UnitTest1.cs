@@ -8,6 +8,22 @@ namespace Brandless.ObjectSerializer.Tests
     public class UnitTest1
     {
         [TestMethod]
+        public void IntegerValue()
+        {
+            var serializer = new CSharpObjectSerializer();
+            var code = serializer.Serialize(789);
+            Assert.AreEqual(@"var instance = 789;", code.Instance);
+        }
+
+        [TestMethod]
+        public void LongValue()
+        {
+            var serializer = new CSharpObjectSerializer();
+            var code = serializer.Serialize(789L);
+            Assert.AreEqual(@"var instance = 789L;", code.Instance);
+        }
+
+        [TestMethod]
         public void SimpleTest()
         {
             var list = GetSimpleList();
@@ -73,10 +89,9 @@ using System.Collections.Generic;
 public class SerializedObject
 {
     public List<Person>GetData()
-    { // Before instance comment
-        var instance =
-        /* Before initialiser comment */
-        new List<Person>
+    {
+        // Before instance comment
+        var instance = /* Before initialiser comment */ new List<Person>
         {
             new Person
             {
@@ -114,9 +129,8 @@ public class SerializedObject
                 Name = ""Bob"",
                 Age = 33
             }
-        }
-        /* After initialiser comment */
-        ; // After instance comment
+        } /* After initialiser comment */ ;
+        // After instance comment
         return instance;
     }
 }", code);
