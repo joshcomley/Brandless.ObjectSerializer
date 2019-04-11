@@ -115,7 +115,7 @@ namespace Brandless.ObjectSerializer
                 .WithMembers(
                     SyntaxFactory.SingletonList<MemberDeclarationSyntax>(
                         SyntaxFactory.MethodDeclaration(
-                                GetFullTypeSyntax(args.Object.GetType()),
+                                TypeSyntax(args.Object.GetType()),
                                 SyntaxFactory.Identifier(
                                     "GetData")).NormalizeWhitespace()
                             .WithModifiers(
@@ -296,7 +296,7 @@ namespace Brandless.ObjectSerializer
                     false,
                     property,
                     @object,
-                    false);
+                    false)?.Syntax;
                 if (serializeObjectToInitialiser != null)
                 {
                     args.ThisStatements.Add(
@@ -342,7 +342,7 @@ namespace Brandless.ObjectSerializer
                     true,
                     null,
                     null,
-                    false);
+                    false).Syntax;
                 if (!string.IsNullOrWhiteSpace(Parameters.BeforeInitialiserComment))
                 {
                     initialiser = initialiser.WithLeadingTrivia(SyntaxFactory.Comment(ToInlineComment(Parameters.BeforeInitialiserComment)));
@@ -427,7 +427,7 @@ namespace Brandless.ObjectSerializer
                         false,
                         null,
                         null,
-                        true));
+                        true).Syntax);
                 nodes.Add(CommaWithNewLine());
             }
 
@@ -443,7 +443,7 @@ namespace Brandless.ObjectSerializer
             }
         }
 
-        private ExpressionSyntax SerializeObjectToInitialiser(
+        private ConversionResult SerializeObjectToInitialiser(
             CSharpObjectSerializerInstanceArguments args,
             object @object,
             bool allowClasses,
@@ -471,7 +471,7 @@ namespace Brandless.ObjectSerializer
             return syntax;
         }
 
-        private ExpressionSyntax SerializeObjectToInitialiserInner(
+        private ConversionResult SerializeObjectToInitialiserInner(
             CSharpObjectSerializerInstanceArguments args,
             object @object,
             bool allowClasses,
@@ -493,7 +493,7 @@ namespace Brandless.ObjectSerializer
                         var result = conv.Convert(objectType, @object, propertyOwner, propertyBeingAssigned);
                         if (result.DidConvert)
                         {
-                            return result.Syntax;
+                            return result;
                         }
                     }
                 }
@@ -501,14 +501,14 @@ namespace Brandless.ObjectSerializer
 
             if (@object == null)
             {
-                return serializeNulls ||
-                       // If the default is NOT null, then we MUST serialize the null value
-                       !IsSameAsDefaultValueAfterInitialise(
-                           propertyBeingAssigned,
-                           @object)
+                return new InternalConversionResult(serializeNulls ||
+                                                    // If the default is NOT null, then we MUST serialize the null value
+                                                    !IsSameAsDefaultValueAfterInitialise(
+                                                        propertyBeingAssigned,
+                                                        @object)
                     ? SyntaxFactory.LiteralExpression(
                         SyntaxKind.NullLiteralExpression)
-                    : null;
+                    : null);
             }
 
             if (ReturnType == null)
@@ -516,13 +516,9 @@ namespace Brandless.ObjectSerializer
                 ReturnType = @object.GetType();
             }
 
-            if (Converters != null)
-            {
-            }
-
             if (SerializeObject(args, @object, out var syntaxFactoryLiteralExpression))
             {
-                return syntaxFactoryLiteralExpression;
+                return syntaxFactoryLiteralExpression.ToResult();
             }
 
             var type = @object.GetType();
@@ -563,10 +559,10 @@ namespace Brandless.ObjectSerializer
                             SyntaxKind.NewKeyword,
                             new SyntaxTriviaList()
                         ),
-                        GetFullTypeSyntax(@object.GetType()),
+                        TypeSyntax(@object.GetType()),
                         null,
                         null);
-                    return hasSerializableProperties
+                    return new InternalConversionResult(hasSerializableProperties
                         // new X { Y = Z }
                         ? objectCreationExpressionSyntax
                             .WithInitializer(
@@ -574,9 +570,10 @@ namespace Brandless.ObjectSerializer
                                     SyntaxKind.ObjectInitializerExpression,
                                     SerializeProperties(
                                         args,
-                                        @object)))
+                                        @object,
+                                        false)))
                         // new X()
-                        : objectCreationExpressionSyntax.WithArgumentList(SyntaxFactory.ArgumentList());
+                        : objectCreationExpressionSyntax.WithArgumentList(SyntaxFactory.ArgumentList()));
                 }
 
                 // Any other kind of IEnumerable, so we may have properties, too
@@ -593,11 +590,11 @@ namespace Brandless.ObjectSerializer
                         SyntaxKind.NewKeyword,
                         new SyntaxTriviaList()
                     ),
-                    GetFullTypeSyntax(type),
+                    TypeSyntax(type),
                     null,
                     null
                 );
-                return enumerable.Cast<object>().Any()
+                return new InternalConversionResult(enumerable.Cast<object>().Any()
                     // new X { Y, Z }
                     ? objectCreationExpression
                         .WithInitializer(
@@ -609,7 +606,7 @@ namespace Brandless.ObjectSerializer
                                         args,
                                         enumerable))))
                     // new X()
-                    : objectCreationExpression.WithArgumentList(SyntaxFactory.ArgumentList());
+                    : objectCreationExpression.WithArgumentList(SyntaxFactory.ArgumentList()));
             }
 
             // Serialize to a separate object instance out of the
@@ -621,7 +618,7 @@ namespace Brandless.ObjectSerializer
                 {
                     return GetObjectReferenceSyntax(
                         args,
-                        @object);
+                        @object).ToResult();
                 }
 
                 // Queue up a property assignment later on
@@ -669,7 +666,7 @@ namespace Brandless.ObjectSerializer
                     instanceName,
                     SyntaxFactory.TriviaList()
                 );
-                return SyntaxFactory.IdentifierName(serializeObjectToInitialiser);
+                return SyntaxFactory.IdentifierName(serializeObjectToInitialiser).ToResult();
             }
 
             //		if (propertyBeingAssigned != null && isCircular && @object is IEnumerable)
@@ -779,7 +776,7 @@ namespace Brandless.ObjectSerializer
 
             if (@object is Type)
             {
-                syntaxFactoryLiteralExpression = SyntaxFactory.TypeOfExpression(GetFullTypeSyntax(@object as Type));
+                syntaxFactoryLiteralExpression = TypeOfSyntax(@object as Type);
                 return true;
             }
 
@@ -800,7 +797,7 @@ namespace Brandless.ObjectSerializer
                                     false,
                                     null,
                                     null,
-                                    false),
+                                    false).Syntax,
                                 SyntaxFactory.Token(
                                     SyntaxKind.CommaToken),
                                 SerializeObjectToInitialiser(
@@ -809,7 +806,7 @@ namespace Brandless.ObjectSerializer
                                     false,
                                     null,
                                     null,
-                                    false)
+                                    false).Syntax
                             }));
                     return true;
                 }
@@ -858,13 +855,18 @@ namespace Brandless.ObjectSerializer
             return false;
         }
 
+        public static TypeOfExpressionSyntax TypeOfSyntax(Type @object)
+        {
+            return SyntaxFactory.TypeOfExpression(TypeSyntax(@object));
+        }
+
         private static ExpressionSyntax SyntaxFactoryLiteralExpression(object @object, Type type)
         {
             if (type.IsNumeric())
             {
                 return SyntaxFactory.LiteralExpression(
                     SyntaxKind.NumericLiteralExpression,
-                    SyntaxFactoryLiteral(
+                    LiteralSyntax(
                         @object
                     )
                 );
@@ -890,7 +892,7 @@ namespace Brandless.ObjectSerializer
             {
                 return SyntaxFactory.LiteralExpression(
                     SyntaxKind.CharacterLiteralExpression,
-                    SyntaxFactoryLiteral(
+                    LiteralSyntax(
                         @object
                     )
                 );
@@ -898,7 +900,7 @@ namespace Brandless.ObjectSerializer
 
             return SyntaxFactory.LiteralExpression(
                 SyntaxKind.StringLiteralExpression,
-                SyntaxFactoryLiteral(
+                LiteralSyntax(
                     @object
                 )
             );
@@ -916,7 +918,7 @@ namespace Brandless.ObjectSerializer
                 {
                     syntax = SyntaxFactory.LiteralExpression(
                         SyntaxKind.TrueLiteralExpression,
-                        SyntaxFactoryLiteral(value)
+                        LiteralSyntax(value)
                     );
                 }
 
@@ -924,7 +926,7 @@ namespace Brandless.ObjectSerializer
             }
 
             return SyntaxFactory.ObjectCreationExpression(
-                    GetFullTypeSyntax(type))
+                    TypeSyntax(type))
                 .NormalizeWhitespace2()
                 .WithArgumentList(
                     SyntaxFactory.ArgumentList(
@@ -933,7 +935,7 @@ namespace Brandless.ObjectSerializer
                 );
         }
 
-        private static TypeSyntax GetFullTypeSyntax(Type type)
+        public static TypeSyntax TypeSyntax(Type type)
         {
             TypeSyntax nameForIntialiser;
             var genericArguments = type.GetGenericArguments();
@@ -945,7 +947,7 @@ namespace Brandless.ObjectSerializer
                     .WithTypeArgumentList(
                         SyntaxFactory.TypeArgumentList(
                             SyntaxFactory.SeparatedList(
-                                genericArguments.Select(GetFullTypeSyntax)
+                                genericArguments.Select(TypeSyntax)
                             )));
             }
             else
@@ -1104,7 +1106,7 @@ namespace Brandless.ObjectSerializer
                 enumMatchedName);
         }
 
-        private static SyntaxToken SyntaxFactoryLiteral(object @object)
+        public static SyntaxToken LiteralSyntax(object @object)
         {
             var type = @object.GetType();
             if (type == typeof(byte))
@@ -1138,11 +1140,13 @@ namespace Brandless.ObjectSerializer
 
         private SeparatedSyntaxList<ExpressionSyntax> SerializeProperties(
             CSharpObjectSerializerInstanceArguments args,
-            object @object)
+            object @object,
+            bool serializeNulls)
         {
             var elms = new List<SyntaxNodeOrToken>();
-            foreach (var property in GetSerializableProperties(@object, false))
+            foreach (var property in GetSerializableProperties(@object, true))
             {
+                var isNull = Equals(null, property.GetValue(@object));
                 var value = property.GetValue(@object);
                 var dependencyResult = args.Dependencies[value];
                 bool isCircular;
@@ -1160,6 +1164,11 @@ namespace Brandless.ObjectSerializer
                         ;
                 }
 
+                if (isNull)
+                {
+                    int a = 0;
+                }
+
                 var valueToAssignReferenceSyntax =
                     SerializeAndOrGetObjectReferenceSyntax(
                         args,
@@ -1167,31 +1176,41 @@ namespace Brandless.ObjectSerializer
                         property,
                         @object,
                         false);
-                if (valueToAssignReferenceSyntax != null)
+                if (valueToAssignReferenceSyntax?.Syntax == null)
                 {
-                    if (isCircular && CanAssignPropertiesTo(
-                            args,
-                            @object)) // && !(valueToAssignReferenceSyntax is IdentifierNameSyntax))
-                    {
-                        // Assign this property later
-                        SerializePropertyToPostParentInitialiseAssignment(
-                            args,
-                            @object,
-                            property,
-                            valueToAssignReferenceSyntax);
-                    }
-                    else
-                    {
-                        elms.Add(
-                            SyntaxFactory.AssignmentExpression(
-                                SyntaxKind.SimpleAssignmentExpression,
-                                SyntaxFactory.IdentifierName(
-                                    property.Name),
-                                valueToAssignReferenceSyntax
-                            )
-                        );
-                        elms.Add(CommaWithNewLine());
-                    }
+                    continue;
+                }
+
+                if (!serializeNulls &&
+                    valueToAssignReferenceSyntax is InternalConversionResult &&
+                    valueToAssignReferenceSyntax.Syntax is LiteralExpressionSyntax lit &&
+                    lit.IsKind(SyntaxKind.NullLiteralExpression))
+                {
+                    continue;
+                }
+
+                if (isCircular && CanAssignPropertiesTo(
+                        args,
+                        @object)) // && !(valueToAssignReferenceSyntax is IdentifierNameSyntax))
+                {
+                    // Assign this property later
+                    SerializePropertyToPostParentInitialiseAssignment(
+                        args,
+                        @object,
+                        property,
+                        valueToAssignReferenceSyntax?.Syntax);
+                }
+                else
+                {
+                    elms.Add(
+                        SyntaxFactory.AssignmentExpression(
+                            SyntaxKind.SimpleAssignmentExpression,
+                            SyntaxFactory.IdentifierName(
+                                property.Name),
+                            valueToAssignReferenceSyntax?.Syntax
+                        )
+                    );
+                    elms.Add(CommaWithNewLine());
                 }
             }
 
@@ -1201,37 +1220,31 @@ namespace Brandless.ObjectSerializer
                 elms.ToArray());
         }
 
-        private ExpressionSyntax SerializeAndOrGetObjectReferenceSyntax(
+        private ConversionResult SerializeAndOrGetObjectReferenceSyntax(
             CSharpObjectSerializerInstanceArguments args,
             object value,
             PropertyInfo propertyBeingAssigned,
             object propertyOwner,
             bool allowNestedClasses)
         {
-            ExpressionSyntax valueToAssignReferenceSyntax;
             if (value != null && DependencyAnalyser.IsDependableObject(value) && args.GetObjectData(value)
                     .HasBeenSerialized)
             {
                 // This object needs to be initialised after
                 // the object it references
                 //args.RegisterDependencies(@object, value);
-                valueToAssignReferenceSyntax = GetObjectReferenceSyntax(
+                return new InternalConversionResult(GetObjectReferenceSyntax(
                     args,
-                    value);
+                    value));
             }
-            else
-            {
-                valueToAssignReferenceSyntax = SerializeObjectToInitialiser(
-                    args,
-                    value,
-                    allowNestedClasses,
-                    propertyBeingAssigned,
-                    propertyOwner,
-                    false
-                );
-            }
-
-            return valueToAssignReferenceSyntax;
+            return SerializeObjectToInitialiser(
+                args,
+                value,
+                allowNestedClasses,
+                propertyBeingAssigned,
+                propertyOwner,
+                false
+            );
         }
 
         private void SerializePropertyToPostParentInitialiseAssignment(
@@ -1258,7 +1271,7 @@ namespace Brandless.ObjectSerializer
                     value,
                     property,
                     propertyOwner,
-                    allowNestedClasses));
+                    allowNestedClasses)?.Syntax);
         }
 
         private static bool IsSameAsDefaultValueAfterInitialise(PropertyInfo property, object value)

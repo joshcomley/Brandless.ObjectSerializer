@@ -71,6 +71,22 @@ namespace Brandless.ObjectSerializer.Tests
         }
 
         [TestMethod]
+        public void InterceptNullTest()
+        {
+            var person = new Person();
+            person.Age = 47;
+            var serializer = new CSharpObjectSerializer();
+            serializer.Converters.Add(new NameConverter());
+            var code = serializer.Serialize(person).Initialiser;
+            Assert.AreEqual(@"new Person
+{
+    Name = "" (age: 47)"",
+    Age = 47,
+    Addresses = new List<Address>()
+}", code);
+        }
+
+        [TestMethod]
         public void InterceptTest()
         {
             var list = GetSimpleList();
