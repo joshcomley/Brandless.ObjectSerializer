@@ -71,6 +71,54 @@ namespace Brandless.ObjectSerializer.Tests
         }
 
         [TestMethod]
+        public void InterceptTest()
+        {
+            var list = GetSimpleList();
+            var serializer = new CSharpObjectSerializer();
+            serializer.Converters.Add(new NameConverter());
+            var code = serializer.Serialize(list).Initialiser;
+            Assert.AreEqual(@"new List<Person>
+{
+    new Person
+    {
+        Name = ""Paulina (age: 24)"",
+        Age = 24,
+        Addresses = new List<Address>
+        {
+            new Address
+            {
+                Street = ""My house"",
+                PostCode = ""AB1 C23""
+            },
+            new Address
+            {
+                Street = ""My other house"",
+                PostCode = ""DE2 F34""
+            }
+        }
+    },
+    new Person
+    {
+        Name = ""Josh (age: 33)"",
+        Age = 33,
+        Addresses = new List<Address>
+        {
+            new Address
+            {
+                Street = ""Big Place"",
+                PostCode = ""XY4 Z56""
+            }
+        }
+    },
+    new Person
+    {
+        Name = ""Bob (age: 33)"",
+        Age = 33
+    }
+}", code);
+        }
+
+        [TestMethod]
         public void TestComments()
         {
             var list = GetSimpleList();

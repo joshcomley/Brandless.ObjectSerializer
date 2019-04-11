@@ -17,6 +17,7 @@ namespace Brandless.ObjectSerializer
 {
     public class CSharpObjectSerializer
     {
+        public List<ICSharpObjectSerializerConverter> Converters { get; set; } = new List<ICSharpObjectSerializerConverter>();
         private const string ObjectSerializedGuidKey = @"[#ObjectSerializedGuid#]";
         private static readonly Guid Rfc4112Namespace = new Guid("23c5ef80-5369-4c11-b900-c52cfe7a3f3e");
         private object AllowThisObject { get; set; }
@@ -314,7 +315,8 @@ namespace Brandless.ObjectSerializer
             string instanceName, string description = null, bool isCircular = false)
         {
             AddNamespace(args, @object);
-            args.GetObjectData(@object).Identifier = instanceName;
+            var data = args.GetObjectData(@object);
+            data.Identifier = instanceName;
             if (string.IsNullOrWhiteSpace(instanceName))
             {
                 SerializeObjectToThis(args, @object);
@@ -480,6 +482,23 @@ namespace Brandless.ObjectSerializer
             AddNamespace(
                 args,
                 @object);
+            var objectType = @object?.GetType() ?? propertyBeingAssigned?.PropertyType;
+            ReturnType = ReturnType ?? objectType;
+            if (objectType != null && Converters != null)
+            {
+                foreach (var conv in Converters)
+                {
+                    if (conv.CanConvert(objectType, @object, propertyOwner, propertyBeingAssigned))
+                    {
+                        var result = conv.Convert(objectType, @object, propertyOwner, propertyBeingAssigned);
+                        if (result.DidConvert)
+                        {
+                            return result.Syntax;
+                        }
+                    }
+                }
+            }
+
             if (@object == null)
             {
                 return serializeNulls ||
@@ -495,6 +514,10 @@ namespace Brandless.ObjectSerializer
             if (ReturnType == null)
             {
                 ReturnType = @object.GetType();
+            }
+
+            if (Converters != null)
+            {
             }
 
             if (SerializeObject(args, @object, out var syntaxFactoryLiteralExpression))
