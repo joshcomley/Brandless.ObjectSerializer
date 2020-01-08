@@ -6,17 +6,17 @@
     <When Condition="'$(Configuration)' == 'Release'">
       <ItemGroup>
         <PackageReference Include="Brandless" Version="0.0.12-0003-0-Release" />
-        <PackageReference Include="TsBeautify" Version="0.0.1-preview00029-0-Release" />
+        <PackageReference Include="TsBeautify" Version="0.0.1-preview00035-0-Release" />
       </ItemGroup>
     </When>
     <When Condition="'$(Configuration)' == 'Debug'">
       <ItemGroup>
         <PackageReference Include="Brandless" Version="0.0.12-0003-1-Debug" />
-        <PackageReference Include="TsBeautify" Version="0.0.1-preview00029-1-Debug" />
+        <PackageReference Include="TsBeautify" Version="0.0.1-preview00035-1-Debug" />
       </ItemGroup>
     </When>
   </Choose>
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis" Version="2.6.1" />
+    <PackageReference Include="Microsoft.CodeAnalysis" Version="3.5.0-beta1-final" />
   </ItemGroup>
 </Project>
