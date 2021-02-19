@@ -2,7 +2,7 @@
   <Import Project="..\..\version.xml" />
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.1;netcoreapp3.1</TargetFrameworks>
+    <TargetFrameworks>netstandard2.1;netcoreapp3.1;net5.0</TargetFrameworks>
     <PackageTags>ObjectSerializer</PackageTags>
     <Product>Brandless.ObjectSerializer</Product>
     <SignAssembly>True</SignAssembly>

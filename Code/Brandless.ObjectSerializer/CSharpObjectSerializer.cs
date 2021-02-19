@@ -1164,11 +1164,6 @@ namespace Brandless.ObjectSerializer
                         ;
                 }
 
-                if (isNull)
-                {
-                    int a = 0;
-                }
-
                 var valueToAssignReferenceSyntax =
                     SerializeAndOrGetObjectReferenceSyntax(
                         args,
